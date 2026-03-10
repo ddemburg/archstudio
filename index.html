@@ -2816,7 +2816,15 @@ function App(){
         if(cancelled)return;
         const ok=await gTrySilentSignIn();
         if(!cancelled){
-          if(ok){ setLoggedIn(true); await db.driveLoad(); }
+          if(ok){
+            try{
+              const r=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+_gAccessToken}});
+              const info=await r.json();
+              await sbEnsureMember(info.email,info.name,info.picture);
+            }catch(e){ console.error('sbEnsureMember silent:',e); }
+            setLoggedIn(true);
+            await db.driveLoad();
+          }
           setAutoLogging(false);
         }
       }catch(e){ if(!cancelled) setAutoLogging(false); }

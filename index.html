@@ -20,7 +20,7 @@ const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.go
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'archstudio-data.json';
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
-const SUPABASE_ANON = 'SUPABASE_ANON_KEY_HERE';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOj
 
 let _gAccessToken = null;
 let _gFileId      = null;
@@ -34,15 +34,28 @@ function gGetTokenClient() {
     _tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GDRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPE,
-      callback: (resp) => {
+      callback: async (resp) => {
         if (resp.access_token) {
           _gAccessToken = resp.access_token;
           try {
             localStorage.setItem('arch_hint', '1');
-            // Store token + expiry in sessionStorage to survive refresh
             const expiry = Date.now() + (resp.expires_in ? resp.expires_in * 1000 : 3500000);
             sessionStorage.setItem('arch_token', resp.access_token);
             sessionStorage.setItem('arch_token_exp', expiry);
+            // Fetch and store user email immediately while token is fresh
+            const savedEmail = sessionStorage.getItem('arch_email');
+            if (!savedEmail) {
+              try {
+                const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{Authorization:'Bearer '+resp.access_token}});
+                const info = await r.json();
+                if (info.email) {
+                  sessionStorage.setItem('arch_email', info.email);
+                  await sbEnsureMember(info.email, info.name, info.picture);
+                }
+              } catch(e) { console.error('userinfo fetch error:', e); }
+            } else {
+              _sbUserEmail = savedEmail;
+            }
           } catch(e){}
           if (window._gTokenResolve) { window._gTokenResolve(resp.access_token); window._gTokenResolve = null; }
         } else {
@@ -2797,14 +2810,7 @@ function App(){
             _gAccessToken = token;
             // Restore user email from sessionStorage
             const savedEmail = sessionStorage.getItem('arch_email');
-            if(savedEmail) _sbUserEmail = savedEmail;
-            else {
-              try{
-                const r=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+token}});
-                const info=await r.json();
-                await sbEnsureMember(info.email,info.name,info.picture);
-              }catch(e){}
-            }
+            if(savedEmail) { _sbUserEmail = savedEmail; }
             setLoggedIn(true);
             await db.driveLoad();
             setAutoLogging(false);

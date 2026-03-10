@@ -8,16 +8,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>
+<script type="text/babel">
 // ═══════════════════════════════════════════════════════
 //  ArchStudio — Google Drive Sync
 // ═══════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'archstudio-data.json';
+const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
+const SUPABASE_ANON = 'SUPABASE_ANON_KEY_HERE';
 
 let _gAccessToken = null;
 let _gFileId      = null;
+let _sbUserEmail  = null;
 
 // ── Auth ──────────────────────────────────────────────
 let _tokenClient = null;
@@ -83,136 +86,225 @@ function gTrySilentSignIn() {
 
 function gIsSignedIn() { return !!_gAccessToken; }
 
-// ── Find or create the data file ──────────────────────
-async function gGetFileId() {
-  if (_gFileId) return _gFileId;
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${GDRIVE_FILE_NAME}'&fields=files(id,name)`,
-    { headers: { Authorization: `Bearer ${_gAccessToken}` } }
-  );
+// ── Supabase helpers ──────────────────────────────────
+function sbHeaders(extra) {
+  return { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, 'Content-Type': 'application/json', ...extra };
+}
+
+async function sbQuery(path, options={}) {
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, { headers: sbHeaders(), ...options });
+  if (!res.ok) { const e = await res.text(); throw new Error('Supabase error: ' + e); }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// ── Get user's office info ─────────────────────────────
+async function sbGetMember(email) {
+  const rows = await sbQuery(`office_members?email=eq.${encodeURIComponent(email)}&active=eq.true&select=*,offices(name)&limit=1`);
+  return rows?.[0] || null;
+}
+
+// ── First login — create office ────────────────────────
+async function sbEnsureMember(email, name, picture) {
+  let member = await sbGetMember(email);
+  if (!member) {
+    // Create office
+    const offices = await sbQuery('offices', {
+      method: 'POST',
+      headers: sbHeaders({ 'Prefer': 'return=representation' }),
+      body: JSON.stringify({ name: 'המשרד שלי' })
+    });
+    const officeId = offices[0].id;
+    // Add as admin
+    await sbQuery('office_members', {
+      method: 'POST',
+      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+      body: JSON.stringify({ office_id: officeId, email, name, picture, role: 'admin', assigned_projects: [] })
+    });
+    // Init empty data
+    await sbQuery('office_data', {
+      method: 'POST',
+      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+      body: JSON.stringify({ office_id: officeId, data: { projects:[], tasks:[], docs:[], reqs:[], approvs:[], committees:[], partners:[], templates:[], crm:[], leads:[] } })
+    });
+    member = await sbGetMember(email);
+  } else {
+    // Update name/picture
+    await sbQuery(`office_members?email=eq.${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+      body: JSON.stringify({ name, picture })
+    });
+  }
+  _sbUserEmail = email;
+  try { sessionStorage.setItem('arch_email', email); } catch(e){}
+  return member;
+}
+
+// ── Load data ──────────────────────────────────────────
+async function apiLoad() {
+  const member = await sbGetMember(_sbUserEmail);
+  if (!member) throw new Error('Not a member');
+  const rows = await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
+  let data = rows?.[0]?.data || {};
+
+  if (member.role === 'drafter') {
+    const assigned = member.assigned_projects || [];
+    data = { ...data,
+      projects: (data.projects||[]).filter(p => assigned.includes(p.id)),
+      tasks:    (data.tasks||[]).filter(t => assigned.includes(t.project_id)),
+      docs:     (data.docs||[]).filter(d => assigned.includes(d.project_id)),
+      reqs:     (data.reqs||[]).filter(r => assigned.includes(r.project_id)),
+      approvs:  (data.approvs||[]).filter(a => assigned.includes(a.project_id)),
+      crm: [], leads: [],
+    };
+  }
+  return data;
+}
+
+// ── Save data ──────────────────────────────────────────
+async function apiSave(data) {
+  const member = await sbGetMember(_sbUserEmail);
+  if (!member) throw new Error('Not a member');
+  await sbQuery(`office_data?office_id=eq.${member.office_id}`, {
+    method: 'PATCH',
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify({ data, updated_at: new Date().toISOString() })
+  });
+}
+
+// ── Members ────────────────────────────────────────────
+async function apiGetMembers() {
+  const member = await sbGetMember(_sbUserEmail);
+  if (!member) return [];
+  return sbQuery(`office_members?office_id=eq.${member.office_id}&active=eq.true&order=joined_at`);
+}
+
+async function apiAddMember(email, name, role, assignedProjects=[]) {
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery('office_members', {
+    method: 'POST',
+    headers: sbHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify({ office_id: me.office_id, email, name: name||email, role, assigned_projects: assignedProjects, active: true })
+  });
+}
+
+async function apiUpdateMember(email, role, assignedProjects=[]) {
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
+    method: 'PATCH',
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify({ role, assigned_projects: assignedProjects })
+  });
+}
+
+async function apiRemoveMember(email) {
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
+    method: 'PATCH',
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify({ active: false })
+  });
+}
+
+// ── Storage helpers ────────────────────────────────────
+async function sbUploadFile(officeId, projectId, file, onProgress) {
+  const ext = file.name.split('.').pop();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._\-\u0590-\u05FF]/g, '_');
+  const path = `${officeId}/${projectId}/${Date.now()}_${safeName}`;
+  
+  const formData = new FormData();
+  formData.append('', file);
+  
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_ANON,
+      'Authorization': 'Bearer ' + SUPABASE_ANON,
+    },
+    body: formData
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error('Upload failed: ' + e); }
+  return path;
+}
+
+async function sbGetSignedUrl(path, expiresIn=3600) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/project-docs/${path}`, {
+    method: 'POST',
+    headers: { ...sbHeaders(), },
+    body: JSON.stringify({ expiresIn })
+  });
+  if (!res.ok) throw new Error('Could not get download URL');
   const data = await res.json();
-  if (data.files && data.files.length > 0) {
-    _gFileId = data.files[0].id;
-    return _gFileId;
-  }
-  return null;
+  return SUPABASE_URL + '/storage/v1' + data.signedURL;
 }
 
-// ── Load data from Drive ──────────────────────────────
-async function gLoad() {
-  try {
-    const fileId = await gGetFileId();
-    if (!fileId) return null;
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${_gAccessToken}` } }
-    );
-    if (!res.ok) return null;
-    return await res.json();
-  } catch(e) {
-    console.error('Drive load error:', e);
-    return null;
-  }
+async function sbDeleteFile(path) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
+    method: 'DELETE',
+    headers: sbHeaders()
+  });
+  return res.ok;
 }
 
-// ── Save data to Drive ────────────────────────────────
-async function gSave(data) {
-  try {
-    const jsonStr = JSON.stringify(data);
-    const fileId  = await gGetFileId();
-
-    if (fileId) {
-      // Update existing
-      await fetch(
-        `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
-        {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${_gAccessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: jsonStr,
-        }
-      );
-    } else {
-      // Create new
-      const meta = { name: GDRIVE_FILE_NAME, parents: ['appDataFolder'] };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file',     new Blob([jsonStr],              { type: 'application/json' }));
-      const res = await fetch(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        { method: 'POST', headers: { Authorization: `Bearer ${_gAccessToken}` }, body: form }
-      );
-      const created = await res.json();
-      _gFileId = created.id;
-    }
-  } catch(e) {
-    console.error('Drive save error:', e);
-  }
+// ── Storage helpers ────────────────────────────────────
+function storageHeaders(extra) {
+  return { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, ...extra };
 }
-</script>
-<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg:#F5F4F0;--surface:#FFFFFF;--surface2:#FAFAF8;--border:#E8E5DF;--border2:#F0EDE8;
-  --text:#1A1A1A;--text2:#5C5C5C;--text3:#9C9C9C;
-  --green:#3D7A5A;--green-light:#EBF4EF;--green-mid:#C8E6D4;
-  --gold:#B8956A;--gold-light:#FBF5EE;
-  --red:#DC3545;--red-light:#FEF2F2;
-  --blue:#2563EB;--blue-light:#EFF6FF;
-  --radius:10px;--radius-lg:14px;--radius-sm:7px;
-  --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.04);
-  --shadow-lg:0 8px 40px rgba(0,0,0,.12);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);direction:rtl;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#D8D5CF;border-radius:4px}
-input,textarea,select,button{font-family:inherit;direction:rtl}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--green)!important;box-shadow:0 0 0 3px rgba(61,122,90,.1)!important}
-.fade{animation:fi .2s cubic-bezier(.4,0,.2,1)}
-@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-@keyframes spin{to{transform:rotate(360deg)}}
-.hr:hover{background:var(--surface2)!important;transition:background .1s}
-.hc{transition:box-shadow .2s,border-color .2s,transform .15s}
-.hc:hover{box-shadow:0 6px 24px rgba(0,0,0,.10)!important;border-color:#C8C4BC!important;transform:translateY(-1px)}
-/* Sidebar */
-.sidebar-item{transition:background .12s,color .12s}
-.sidebar-item:hover{background:#F0EDE8!important;color:var(--text)!important}
-/* Pill badge */
-.pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em}
-/* Table row */
-.trow{transition:background .1s}
-.trow:hover{background:#FAFAF8}
-/* Card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
-/* Section label */
-.sec-label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
-/* Divider */
-.div{height:1px;background:var(--border2);margin:12px 0}
-</style>
-</head>
-<body><div id="root"></div>
-<script type="text/babel">
-const {useState,useRef,useEffect,useCallback}=React;
-const uid=()=>Math.random().toString(36).slice(2,9);
-const fmtD=d=>d?new Date(d).toLocaleDateString('he-IL'):'—';
-const fmtM=n=>n?'₪'+Number(n).toLocaleString('he-IL'):'—';
-const COLORS=['#4a7c5e','#6366f1','#f59e0b','#ef4444','#06b6d4','#8b5cf6','#ec4899'];
 
-const SP=[
-  {id:'u1',name:'יוסי לוי',role:'שותף בכיר',color:COLORS[0]},
-  {id:'u2',name:'מיכל כהן',role:'אדריכלית',color:COLORS[1]},
-  {id:'u3',name:'אבי שמש',role:'מתמחה',color:COLORS[2]},
-];
-const SPROJ=[
-  {id:'p1',name:'Villa Rosen',address:'הכרמל 12, תל אביב',status:'Under Construction',client_name:'דוד רוזן',client_email:'david@example.com',client_phone:'052-1234567',budget:850000,notes:'לקוח VIP.',planning_committee_id:'',planning_committee:'',zone:'אזור תל אביב',start_date:'2024-01-15',target_completion:'2025-06-30',manager_id:'u1',
-   milestones:[{name:'תכנון סכמטי',completed:true,date:'2024-03-01',payment_amount:50000,payment_status:'Paid'},{name:'פיתוח תכנון',completed:true,date:'2024-06-01',payment_amount:80000,payment_status:'Paid'},{name:'הגשה לעירייה',completed:true,date:'2024-09-01',payment_amount:30000,payment_status:'Paid'},{name:'אישור היתר',completed:false,date:'',expected_date:'2025-04-01',payment_amount:40000,payment_status:'Unpaid'},{name:'תחילת בנייה',completed:false,date:'',expected_date:'2025-08-01',payment_amount:120000,payment_status:'Unpaid'}]},
-  {id:'p2',name:'Office Tower Alpha',address:'רוטשילד 50, תל אביב',status:'Permitting',client_name:'Alpha Holdings',client_email:'office@alpha.co.il',client_phone:'03-9876543',budget:4200000,planning_committee_id:'',planning_committee:'',zone:'אזור תל אביב',start_date:'2024-06-01',target_completion:'2027-12-31',manager_id:'u2',
-   milestones:[{name:'תכנון סכמטי',completed:true,date:'2024-08-01',payment_amount:200000,payment_status:'Paid'},{name:'פיתוח תכנון',completed:false,date:'',expected_date:'2025-03-01',payment_amount:350000,payment_status:'Unpaid'},{name:'הגשה לעירייה',completed:false,date:'',expected_date:'2025-07-01'},{name:'אישור היתר',completed:false,date:'',expected_date:'2025-11-01'},{name:'תחילת בנייה',completed:false,date:'',expected_date:'2026-03-01'}]},
+async function sbUploadFile(officeId, projectId, file) {
+  const ext = file.name.split('.').pop();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-￿-]/g, '_');
+  const path = `${officeId}/${projectId}/${Date.now()}_${safeName}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
+    method: 'POST',
+    headers: storageHeaders({ 'Content-Type': file.type || 'application/octet-stream' }),
+    body: file
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error('Upload failed: ' + e); }
+  return path;
+}
+
+async function sbGetSignedUrl(path) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/project-docs/${path}`, {
+    method: 'POST',
+    headers: storageHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ expiresIn: 86400 }) // 24 hours
+  });
+  if (!res.ok) throw new Error('Could not get signed URL');
+  const data = await res.json();
+  return SUPABASE_URL + '/storage/v1' + data.signedURL;
+}
+
+async function sbDeleteFile(path) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
+    method: 'DELETE',
+    headers: storageHeaders({})
+  });
+  return res.ok;
+}
+
+async function sbListFiles(officeId, projectId) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/project-docs`, {
+    method: 'POST',
+    headers: storageHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ prefix: `${officeId}/${projectId}/`, limit: 200 })
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data || []).map(f => ({
+    name: f.name.replace(/^\d+_/, ''), // strip timestamp prefix
+    path: `${officeId}/${projectId}/${f.name}`,
+    size: f.metadata?.size || 0,
+    created: f.created_at,
+    id: f.id
+  }));
+}
+
+
 // ── Imported from Todoist: דניאל ואבישי נווה אטיב ──────────────────────
   {id:'p4',
    name:'דניאל ואבישי — נווה אטיב',
@@ -328,7 +420,7 @@ function useApp(){
   const driveLoad=async()=>{
     try{
       setDriveSyncing(true); setDriveError(null);
-      const saved=await gLoad();
+      const saved=await apiLoad();
       if(saved){
         if(saved.projects)   setP(saved.projects);
         if(saved.tasks)      setT(saved.tasks);
@@ -360,7 +452,7 @@ function useApp(){
     try{
       const s=state||getState();
       s._savedAt=new Date().toISOString();
-      await gSave(s);
+      await apiSave(s);
       setDriveLastSave(s._savedAt);
       setDriveError(null);
     }catch(e){ setDriveError('שגיאת שמירה'); }
@@ -1351,25 +1443,85 @@ function DocsTab({docs,pid,db}){
   const today=new Date();
   const soon=d=>{if(!d)return false;const dt=new Date(d);const diff=(dt-today)/(1000*60*60*24);return diff>=0&&diff<=30;};
   const expired=d=>{if(!d)return false;return new Date(d)<today;};
-  const [sf,setSF]=useState(false);const [form,setF]=useState({name:'',category:'Other'});
+  const [sf,setSF]=useState(false);
+  const [form,setF]=useState({name:'',category:'Other',expiry:''});
+  const [uploading,setUploading]=useState(false);
+  const [uploadErr,setUploadErr]=useState('');
+  const [selectedFile,setSelectedFile]=useState(null);
+  const fileRef=React.useRef();
   const cats=['Blueprint','Permit','Contract','Report','Correspondence','Other'];
   const CC={Blueprint:'#EFF6FF|#1D4ED8',Permit:'#FFFBEB|#B45309',Contract:'#F5F3FF|#6D28D9',Report:'#ECFDF5|#065F46',Correspondence:'#FFF1F2|#BE123C',Other:'#F3F4F6|#6B7280'};
-  const add=()=>{if(!form.name.trim())return;db.addDoc({project_id:pid,...form});setF({name:'',category:'Other'});setSF(false);};
+  
+  const handleFileSelect=e=>{
+    const f=e.target.files[0];
+    if(!f)return;
+    setSelectedFile(f);
+    if(!form.name) setF(fm=>({...fm,name:f.name.replace(/\.[^/.]+$/,'')}));
+  };
+
+  const add=async()=>{
+    if(!form.name.trim())return;
+    setUploading(true); setUploadErr('');
+    try {
+      let storagePath=null;
+      if(selectedFile){
+        const member=await sbGetMember(_sbUserEmail);
+        storagePath=await sbUploadFile(member.office_id, pid, selectedFile);
+      }
+      db.addDoc({project_id:pid,...form,storage_path:storagePath,file_name:selectedFile?.name||null,file_size:selectedFile?.size||null});
+      setF({name:'',category:'Other',expiry:''});
+      setSelectedFile(null);
+      setSF(false);
+    } catch(e){ setUploadErr(e.message); }
+    setUploading(false);
+  };
+
+  const handleDownload=async(d)=>{
+    if(!d.storage_path){alert('אין קובץ מצורף');return;}
+    try{
+      const url=await sbGetSignedUrl(d.storage_path,3600);
+      window.open(url,'_blank');
+    }catch(e){alert('שגיאה בהורדה: '+e.message);}
+  };
+
+  const handleDelete=async(d)=>{
+    if(d.storage_path) await sbDeleteFile(d.storage_path).catch(()=>{});
+    db.delDoc(d.id);
+  };
+
   return<div>
     {!sf?<Btn v="outline" sx={{marginBottom:14,borderStyle:'dashed'}} onClick={()=>setSF(true)}>📎 הוסף מסמך</Btn>
     :<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+      <div style={{border:'2px dashed #D1D5DB',borderRadius:8,padding:16,textAlign:'center',cursor:'pointer',background:selectedFile?'#F0FDF4':'#FAFAFA'}} onClick={()=>fileRef.current.click()}>
+        <input ref={fileRef} type="file" style={{display:'none'}} onChange={handleFileSelect} accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif"/>
+        {selectedFile?<div style={{color:'#16A34A',fontSize:13}}>✅ {selectedFile.name} <span style={{color:'#6B7280',fontSize:11}}>({(selectedFile.size/1024/1024).toFixed(1)} MB)</span></div>
+        :<div style={{color:'#9CA3AF',fontSize:13}}>📁 לחץ לבחירת קובץ (PDF, Word, Excel, תמונה)</div>}
+      </div>
       <I label="שם" value={form.name} onChange={e=>setF(f=>({...f,name:e.target.value}))} placeholder='תוכנית קומה v3'/>
       <SE label="קטגוריה" value={form.category} onChange={e=>setF(f=>({...f,category:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</SE>
       <I label="תוקף (לא חובה)" type="date" value={form.expiry||''} onChange={e=>setF(f=>({...f,expiry:e.target.value}))}/>
-      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn v="ghost" sz="sm" onClick={()=>setSF(false)}>ביטול</Btn><Btn sz="sm" onClick={add}>הוסף</Btn></div>
+      {uploadErr&&<div style={{color:'#DC2626',fontSize:12}}>{uploadErr}</div>}
+      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+        <Btn v="ghost" sz="sm" onClick={()=>{setSF(false);setSelectedFile(null);}}>ביטול</Btn>
+        <Btn sz="sm" onClick={add} disabled={uploading}>{uploading?'מעלה...':'הוסף'}</Btn>
+      </div>
     </div>}
     {docs.length===0&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:40,textAlign:'center',color:'#8C8C8C'}}><div style={{fontSize:28,marginBottom:6}}>📄</div><div>אין מסמכים</div></div>}
     {docs.map(d=>{const [bg,col]=(CC[d.category]||CC.Other).split('|');return<div key={d.id} className="hc" style={{display:'flex',alignItems:'center',gap:10,background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:'10px 14px',marginBottom:7,transition:'all .2s'}}>
-      <span style={{fontSize:20}}>📄</span><div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{d.name}</div><span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,display:'inline-block',marginTop:2,background:bg,color:col}}>{d.category}</span></div>
+      <span style={{fontSize:20,cursor:d.storage_path?'pointer':'default'}} onClick={()=>d.storage_path&&handleDownload(d)}>📄</span>
+      <div style={{flex:1}}>
+        <div style={{fontSize:13,fontWeight:500,cursor:d.storage_path?'pointer':'default',color:d.storage_path?'#1D4ED8':'inherit'}} onClick={()=>d.storage_path&&handleDownload(d)}>{d.name}</div>
+        <div style={{display:'flex',gap:6,alignItems:'center',marginTop:2,flexWrap:'wrap'}}>
+          <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,background:bg,color:col}}>{d.category}</span>
+          {d.storage_path&&<span style={{fontSize:10,color:'#16A34A'}}>📎 קובץ מצורף</span>}
+          {d.file_size&&<span style={{fontSize:10,color:'#9CA3AF'}}>{(d.file_size/1024/1024).toFixed(1)} MB</span>}
+        </div>
+      </div>
       {d.expiry&&expired(d.expiry)&&<span style={{fontSize:10,background:'#FEF2F2',color:'#DC2626',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג תוקף</span>}
       {d.expiry&&soon(d.expiry)&&!expired(d.expiry)&&<span style={{fontSize:10,background:'#FFFBEB',color:'#B45309',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג בקרוב</span>}
       {d.expiry&&<span style={{fontSize:11,color:'#9C9C9C',whiteSpace:'nowrap'}}>{fmtD(d.expiry)}</span>}
-      <button onClick={()=>db.delDoc(d.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
+      {d.storage_path&&<button onClick={()=>handleDownload(d)} style={{background:'none',border:'none',cursor:'pointer',color:'#3B82F6',fontSize:14}} title="הורד">⬇️</button>}
+      <button onClick={()=>handleDelete(d)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
     </div>;})}
   </div>;
 }
@@ -2691,6 +2843,16 @@ function App(){
         if(token && exp > Date.now()+60000){
           if(!cancelled){
             _gAccessToken = token;
+            // Restore user email from sessionStorage
+            const savedEmail = sessionStorage.getItem('arch_email');
+            if(savedEmail) _sbUserEmail = savedEmail;
+            else {
+              try{
+                const r=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+token}});
+                const info=await r.json();
+                await sbEnsureMember(info.email,info.name,info.picture);
+              }catch(e){}
+            }
             setLoggedIn(true);
             await db.driveLoad();
             setAutoLogging(false);
@@ -2711,7 +2873,15 @@ function App(){
     return()=>{cancelled=true;};
   },[]);
 
-  const handleLogin=async()=>{
+  const handleLogin=async(userInfo)=>{
+    if(userInfo){
+      // Get user info from Google access token
+      try{
+        const r=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+_gAccessToken}});
+        const info=await r.json();
+        await sbEnsureMember(info.email,info.name,info.picture);
+      }catch(e){console.error('sbEnsureMember error:',e);}
+    }
     setLoggedIn(true);
     await db.driveLoad();
   };

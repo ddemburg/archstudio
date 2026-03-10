@@ -250,59 +250,6 @@ async function sbDeleteFile(path) {
   return res.ok;
 }
 
-// ── Storage helpers ────────────────────────────────────
-function storageHeaders(extra) {
-  return { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, ...extra };
-}
-
-async function sbUploadFile(officeId, projectId, file) {
-  const ext = file.name.split('.').pop();
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-￿-]/g, '_');
-  const path = `${officeId}/${projectId}/${Date.now()}_${safeName}`;
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
-    method: 'POST',
-    headers: storageHeaders({ 'Content-Type': file.type || 'application/octet-stream' }),
-    body: file
-  });
-  if (!res.ok) { const e = await res.text(); throw new Error('Upload failed: ' + e); }
-  return path;
-}
-
-async function sbGetSignedUrl(path) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/project-docs/${path}`, {
-    method: 'POST',
-    headers: storageHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ expiresIn: 86400 }) // 24 hours
-  });
-  if (!res.ok) throw new Error('Could not get signed URL');
-  const data = await res.json();
-  return SUPABASE_URL + '/storage/v1' + data.signedURL;
-}
-
-async function sbDeleteFile(path) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
-    method: 'DELETE',
-    headers: storageHeaders({})
-  });
-  return res.ok;
-}
-
-async function sbListFiles(officeId, projectId) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/project-docs`, {
-    method: 'POST',
-    headers: storageHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ prefix: `${officeId}/${projectId}/`, limit: 200 })
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data || []).map(f => ({
-    name: f.name.replace(/^\d+_/, ''), // strip timestamp prefix
-    path: `${officeId}/${projectId}/${f.name}`,
-    size: f.metadata?.size || 0,
-    created: f.created_at,
-    id: f.id
-  }));
-}
 
 
 // ── Imported from Todoist: דניאל ואבישי נווה אטיב ──────────────────────

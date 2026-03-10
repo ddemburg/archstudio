@@ -15,6 +15,7 @@
 // ═══════════════════════════════════════════════════════
 //  ArchStudio — Google Drive Sync
 // ═══════════════════════════════════════════════════════
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'archstudio-data.json';

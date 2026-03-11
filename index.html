@@ -17,6 +17,10 @@
 //  ArchStudio — Google Drive Sync
 // ═══════════════════════════════════════════════════════
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+const fmtM=n=>n==null?'—':'₪'+Number(n).toLocaleString('he-IL',{maximumFractionDigits:0});
+const fmtD=s=>{if(!s)return'—';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});};
+const uid=()=>Math.random().toString(36).slice(2,9);
 const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata email profile openid';
 const GDRIVE_FILE_NAME = 'archstudio-data.json';
@@ -210,6 +214,107 @@ async function sbDeleteFile(path) {
   });
   return res.ok;
 }
+// ── Seed data & helpers ──────────────────────────────────────────────────
+const COLORS=['#4a7c5e','#6366f1','#f59e0b','#ef4444','#06b6d4','#8b5cf6','#ec4899'];
+const SP=[
+  {id:'u1',name:'יוסי לוי',role:'שותף בכיר',color:COLORS[0]},
+  {id:'u2',name:'מיכל כהן',role:'אדריכלית',color:COLORS[1]},
+  {id:'u3',name:'אבי שמש',role:'מתמחה',color:COLORS[2]},
+];
+const SPROJ=[
+  {id:'p1',name:'Villa Rosen',address:'הכרמל 12, תל אביב',status:'Under Construction',client_name:'דוד רוזן',client_email:'david@example.com',client_phone:'052-1234567',budget:850000,notes:'לקוח VIP.',planning_committee_id:'',planning_committee:'',zone:'אזור תל אביב',start_date:'2024-01-15',target_completion:'2025-06-30',manager_id:'u1',
+   milestones:[{name:'תכנון סכמטי',completed:true,date:'2024-03-01',payment_amount:50000,payment_status:'Paid'},{name:'פיתוח תכנון',completed:true,date:'2024-06-01',payment_amount:80000,payment_status:'Paid'},{name:'הגשה לעירייה',completed:true,date:'2024-09-01',payment_amount:30000,payment_status:'Paid'},{name:'אישור היתר',completed:false,date:'',expected_date:'2025-04-01',payment_amount:40000,payment_status:'Unpaid'},{name:'תחילת בנייה',completed:false,date:'',expected_date:'2025-08-01',payment_amount:120000,payment_status:'Unpaid'}]},
+  {id:'p2',name:'Office Tower Alpha',address:'רוטשילד 50, תל אביב',status:'Permitting',client_name:'Alpha Holdings',client_email:'office@alpha.co.il',client_phone:'03-9876543',budget:4200000,planning_committee_id:'',planning_committee:'',zone:'אזור תל אביב',start_date:'2024-06-01',target_completion:'2027-12-31',manager_id:'u2',
+   milestones:[{name:'תכנון סכמטי',completed:true,date:'2024-08-01',payment_amount:200000,payment_status:'Paid'},{name:'פיתוח תכנון',completed:false,date:'',expected_date:'2025-03-01',payment_amount:350000,payment_status:'Unpaid'},{name:'הגשה לעירייה',completed:false,date:'',expected_date:'2025-07-01'},{name:'אישור היתר',completed:false,date:'',expected_date:'2025-11-01'},{name:'תחילת בנייה',completed:false,date:'',expected_date:'2026-03-01'}]},
+// ── Imported from Todoist: דניאל ואבישי נווה אטיב ──────────────────────
+  {id:'p4',
+   name:'דניאל ואבישי — נווה אטיב',
+   address:'נווה אטיב, גוש 203000 חלקה 4 מגרש 126',
+   status:'Permitting',
+   client_name:'אבישי ודניאל לפיד',
+   client_email:'lapidavishai@gmail.com',
+   client_phone:'054-4751999',
+   budget:25000,
+   notes:'מספר חוזה: 207065315 | בקשה למידע: 10000567028 | שטח מגרש: 500 מר | אבישי: 054-4751999 | דניאל: 054-2283230',
+   planning_committee_id:'',
+   planning_committee:'',
+   zone:'',
+   start_date:'',
+   target_completion:'',
+   manager_id:'u1',
+   milestones:[
+     {name:'הגשת בקשה להיתר — 25%', completed:false, date:'', expected_date:'', payment_amount:6250, payment_status:'Unpaid'},
+     {name:'תכניות עבודה — 25%',     completed:false, date:'', expected_date:'', payment_amount:6250, payment_status:'Unpaid'},
+     {name:'פיקוח עליון — 5%',       completed:false, date:'', expected_date:'', payment_amount:1250, payment_status:'Unpaid'},
+   ]},
+  {id:'p3',name:'Beach House Levi',address:'נורדאו 3, הרצליה',status:'Planning',client_name:'נועה לוי',client_email:'noa@email.com',client_phone:'054-7654321',budget:620000,planning_committee_id:'',planning_committee:'',zone:'אזור שרון',start_date:'2025-03-01',target_completion:'2026-09-01',manager_id:'u3',
+   milestones:[{name:'תכנון סכמטי',completed:false,date:'',expected_date:'2025-05-01',payment_amount:40000,payment_status:'Unpaid'},{name:'פיתוח תכנון',completed:false,date:'',expected_date:'2025-09-01'},{name:'הגשה לעירייה',completed:false,date:'',expected_date:'2026-01-01'},{name:'אישור היתר',completed:false,date:'',expected_date:'2026-05-01'},{name:'תחילת בנייה',completed:false,date:'',expected_date:'2026-09-01'}]},
+];
+const STK=[
+  {id:'t1',project_id:'p1',title:'תיאום עם מהנדס קונסטרוקציה',section:'הנדסה',status:'Done',priority:'High',deadline:'2024-05-01',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t2',project_id:'p1',title:'תוכניות יסודות',section:'הנדסה',status:'Done',priority:'High',deadline:'2024-05-15',assignee_id:'u2',depends_on:['t1'],notes:[],description:''},
+  {id:'t3',project_id:'p1',title:'מוקאפ עיצוב פנים',section:'עיצוב',status:'In Progress',priority:'Medium',deadline:'2024-12-01',assignee_id:'u2',depends_on:[],notes:[{id:'n1',text:'העדפה לסגנון סקנדינבי',author_id:'u1',date:'2024-10-01'}],description:''},
+  {id:'t4',project_id:'p1',title:'בחירת גימורי מטבח',section:'עיצוב',status:'To Do',priority:'Low',deadline:'2025-01-15',assignee_id:'u3',depends_on:['t3'],notes:[],description:''},
+  {id:'t5',project_id:'p1',title:'הגשת בקשת היתר',section:'היתרים',status:'In Progress',priority:'High',deadline:'2024-11-30',assignee_id:'u1',depends_on:['t2','t3'],notes:[],description:''},
+  {id:'t6',project_id:'p2',title:'ניתוח תב"ע',section:'תכנון',status:'Done',priority:'High',deadline:'2024-07-01',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t7',project_id:'p2',title:'הצגת קונספט חזית',section:'עיצוב',status:'To Do',priority:'Medium',deadline:'2024-12-15',assignee_id:'u2',depends_on:['t6'],notes:[],description:''},
+// ── תכנון ──────────────────────────────────────────────────────────────
+  {id:'t20',project_id:'p4',title:'סקיצה חדשה',section:'תכנון',status:'To Do',priority:'Low',deadline:'',assignee_id:'u2',depends_on:[],notes:[],description:''},
+  {id:'t21',project_id:'p4',title:'סקיצה',section:'תכנון',status:'To Do',priority:'Medium',deadline:'',assignee_id:'u3',depends_on:[],notes:[],description:''},
+
+  // ── בקשה להיתר — קבוצה ראשית ───────────────────────────────────────────
+  {id:'t22',project_id:'p4',title:'גרמושקה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t23',project_id:'p4',title:'שרטוט גרמושקה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t22'},
+  {id:'t24',project_id:'p4',title:'הפקת דף ראשון',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t22'},
+  {id:'t25',project_id:'p4',title:'סגירת יועצים',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t25a',project_id:'p4',title:'יועץ קרקע',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t25'},
+  {id:'t25b',project_id:'p4',title:'קונסטרוקציה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u2',depends_on:[],notes:[],description:'',parent_task_id:'t25'},
+  {id:'t25c',project_id:'p4',title:'בטיחות באש',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t25'},
+  {id:'t26',project_id:'p4',title:'בקרה מרחבית',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t27',project_id:'p4',title:'הסכמת בעלי זכויות',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'קובץ אישור הסכמת בעלי זכויות אחרים במקרקעין לבקשה להיתר או העתקי ההודעות שנמסרו לבעלי הזכויות'},
+  {id:'t28',project_id:'p4',title:'מינויים והצהרות',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t28a',project_id:'p4',title:'חתימת עורך בקשה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u2',depends_on:[],notes:[],description:'',parent_task_id:'t28'},
+  {id:'t28b',project_id:'p4',title:'חתימת מבקשי הבקשה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t28'},
+  {id:'t28c',project_id:'p4',title:'חתימת מתכנן שלד',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t28'},
+  {id:'t29',project_id:'p4',title:'אישור תשלום 20% פיקדון אגרת בניה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'למלא טופס מקדמה לאגרת בניה ולהעביר ללקוח לתשלום מול מחלקת גבייה. תעריף 36.37 שח למר'},
+  {id:'t30',project_id:'p4',title:'בקרת תכן',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t30a',project_id:'p4',title:'התאמת דרישות לתיק מידע',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t30'},
+  {id:'t30b',project_id:'p4',title:'חישובים סטטיים',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u2',depends_on:[],notes:[],description:'',parent_task_id:'t30'},
+  {id:'t30c',project_id:'p4',title:'תכנית בטיחות באש',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t30'},
+  {id:'t30d',project_id:'p4',title:'אישור רמי',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'',parent_task_id:'t30'},
+  {id:'t31',project_id:'p4',title:'אישור רשות העתיקות',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'לפני נוהל חדש 02/2024 — במידה ובמידע תגובה שהשטח באזור מוכרז, להגיש בקשה לבדיקה ראשונית. עלות אגרה: 150 שח'},
+  {id:'t32',project_id:'p4',title:'חישוב התנגדות תרמית',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t33',project_id:'p4',title:'היטל השבחה',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:''},
+  {id:'t34',project_id:'p4',title:'היטל ביוב ומים',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:[],notes:[],description:'מתקבל אחרי דיון. במידה ולא מתקבל ישירות — ללקוח לפנות למחלקת גבייה במועצה'},
+  {id:'t35',project_id:'p4',title:'השלמת אגרת בניה 80%',section:'בקשה להיתר',status:'To Do',priority:'High',deadline:'',assignee_id:'u1',depends_on:['t29'],notes:[],description:''},
+
+  // ── ביצוע ───────────────────────────────────────────────────────────────
+  {id:'t36',project_id:'p4',title:'הכנת סט תוכניות ראשוני',section:'ביצוע',status:'To Do',priority:'High',deadline:'',assignee_id:'u2',depends_on:['t22'],notes:[],description:''},
+  {id:'t37',project_id:'p4',title:'שליחת תוכניות לקונסטרוקציה',section:'ביצוע',status:'To Do',priority:'High',deadline:'',assignee_id:'u2',depends_on:['t36'],notes:[],description:''},
+  {id:'t38',project_id:'p4',title:'הכנת סט תוכניות למכרז קבלנים',section:'ביצוע',status:'To Do',priority:'Medium',deadline:'',assignee_id:'u2',depends_on:['t37'],notes:[],description:''},
+  {id:'t39',project_id:'p4',title:'פיקוח עליון',section:'ביצוע',status:'To Do',priority:'Medium',deadline:'',assignee_id:'u1',depends_on:['t38'],notes:[],description:''},
+  {id:'t8',project_id:'p3',title:'בריף ראשוני עם לקוח',section:'',status:'Done',priority:'Medium',deadline:'2025-03-15',assignee_id:'u3',depends_on:[],notes:[],description:''},
+];
+const SLEADS=[
+  {id:'l1',name:'משפחת גולן',phone:'054-1111111',email:'golan@example.com',source:'המלצה',status:'חדש',notes:'מחפשים תוספת בנייה 80 מר',budget:400000,tasks:[],created:new Date().toISOString().split('T')[0]},
+];
+const SCRM=[
+  {id:'c1',type:'client',name:'דוד רוזן',company:'',phone:'052-1234567',email:'david@example.com',role:'בעל נכס',notes:'לקוח VIP, מעדיף תקשורת טלפונית',project_ids:['p1'],tags:['VIP']},
+  {id:'c2',type:'client',name:'Alpha Holdings',company:'Alpha Holdings Ltd',phone:'03-9876543',email:'office@alpha.co.il',role:'יזם',notes:'',project_ids:['p2'],tags:['יזם']},
+  {id:'c3',type:'client',name:'נועה לוי',company:'',phone:'054-7654321',email:'noa@email.com',role:'בעלת נכס',notes:'',project_ids:['p3'],tags:[]},
+  {id:'c4',type:'consultant',name:'ד"ר אריה ברק',company:'ברק הנדסה',phone:'054-1112222',email:'arie@barak-eng.co.il',role:'מהנדס קונסטרוקציה',notes:'עובדים איתו שנים, אמין מאוד',project_ids:['p1','p2'],tags:['קונסטרוקציה']},
+  {id:'c5',type:'consultant',name:'שרה מזרחי',company:'מזרחי נוף',phone:'052-3334444',email:'sara@mizrahi-landscape.com',role:'מתכננת נוף',notes:'',project_ids:['p1'],tags:['נוף']},
+  {id:'c6',type:'consultant',name:'יובל כץ',company:'כץ חשמל',phone:'050-5556666',email:'yuval@katz-elec.co.il',role:'מהנדס חשמל',notes:'',project_ids:[],tags:['חשמל']},
+  {id:'c7',type:'supplier',name:'חברת שיש לוי',company:'שיש לוי בע"מ',phone:'03-7778888',email:'info@levi-marble.co.il',role:'ספק חומרי גמר',notes:'',project_ids:[],tags:['גמר','שיש']},
+  {id:'c8',type:'supplier',name:'ברזל יעקב',company:'',phone:'052-9990000',email:'yaakov@metal.co.il',role:'ספק מוצרי ברזל',notes:'',project_ids:[],tags:['מתכת']},
+{id:'c10',type:'client',name:'אבישי אנשל לפיד',company:'',phone:'054-4751999',email:'lapidavishai@gmail.com',role:'בעל נכס',notes:'ת.ז. 300777950',project_ids:['p4'],tags:[]},
+  {id:'c11',type:'client',name:'דניאל לפיד',company:'',phone:'054-2283230',email:'',role:'בעל נכס',notes:'ת.ז. 300689874',project_ids:['p4'],tags:[]},
+  {id:'c9',type:'authority',name:'עיריית תל אביב — הנדסה',company:'עיריית תל אביב',phone:'*3075',email:'binyan@tel-aviv.gov.il',role:'ועדת תכנון',notes:'',project_ids:['p1','p2'],tags:['עירייה']},
+];
+const SDK=[{id:'d1',project_id:'p1',name:'תוכנית יסודות v3.pdf',category:'Blueprint',expiry:''},{id:'d2',project_id:'p1',name:'בקשת היתר.pdf',category:'Permit',expiry:''},{id:'d3',project_id:'p1',name:'חוזה לקוח.pdf',category:'Contract',expiry:''},{id:'d4',project_id:'p2',name:'דוח סקר קרקע.pdf',category:'Report',expiry:''}];
+const SRK=[{id:'r1',project_id:'p1',document_name:'נסח טאבו',description:'עותק רשמי',status:'Uploaded',due_date:'2024-11-01'},{id:'r2',project_id:'p1',document_name:'צילום ת.ז.',description:'',status:'Approved',due_date:'2024-10-15'},{id:'r3',project_id:'p1',document_name:'אישור בנק',description:'נדרש לבקשת היתר',status:'Pending',due_date:'2024-12-01'}];
+const SAK=[{id:'a1',project_id:'p1',title:'תוכנית קומה v4',description:'מטבח וסלון',status:'Approved',client_comment:''},{id:'a2',project_id:'p1',title:'חזית דרומית',description:'אבן בהירה',status:'Changes Requested',client_comment:'להגדיל חלונות.'},{id:'a3',project_id:'p1',title:'עיצוב גג ירוק',description:'פרגולה',status:'Pending',client_comment:''}];
+
 function useApp(){
   const [projects,setP]=useState([]);
   const [tasks,setT]=useState([]);
@@ -2741,6 +2846,7 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
 </script>
 </body>
 </html>

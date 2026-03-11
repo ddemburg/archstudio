@@ -20,7 +20,7 @@ const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.go
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'archstudio-data.json';
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOj';});
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';});
   const depTasks=allTasks.filter(t=>(task.depends_on||[]).includes(t.id));
   const candidates=allTasks.filter(t=>t.id!==task.id&&!(task.depends_on||[]).includes(t.id)&&(!depSearch||t.title.includes(depSearch)||(allProjects.find(p=>p.id===t.project_id)||{}).name?.includes(depSearch)));
   const addDep=id=>{u('depends_on',[...(task.depends_on||[]),id]);setDepSearch('');};

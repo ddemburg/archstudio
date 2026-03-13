@@ -9,6 +9,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Heebo',sans-serif;background:#F5F4F0;color:#1A1A1A;direction:rtl}
+  :root{--green:#3D7A5A;--gold:#B45309;--red:#DC2626;--red-light:#FEF2F2;--border:#E8E6E1;--text2:#6B6B6B}
+  .hr:hover{background:#FAFAF8!important}
+  .fade{animation:fadeIn .18s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#D1CBC1;border-radius:10px}
+</style>
 </head>
 <body>
 <div id="root"></div>
@@ -180,6 +192,46 @@ async function apiSave(data) {
     method: 'PATCH',
     headers: sbHeaders({ 'Prefer': 'return=minimal' }),
     body: JSON.stringify({ data, updated_at: new Date().toISOString() })
+  });
+}
+
+async function apiGetMembers() {
+  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
+  const member = await sbGetMember(_sbUserEmail);
+  if (!member) return [];
+  return sbQuery(`office_members?office_id=eq.${member.office_id}&active=eq.true&order=joined_at`);
+}
+
+async function apiAddMember(email, name, role, assignedProjects=[]) {
+  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery('office_members', {
+    method: 'POST',
+    headers: sbHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify({ office_id: me.office_id, email: email.trim().toLowerCase(), name: name||email, role, assigned_projects: assignedProjects, active: true })
+  });
+}
+
+async function apiUpdateMember(email, role, assignedProjects=[]) {
+  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
+    method: 'PATCH',
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify({ role, assigned_projects: assignedProjects })
+  });
+}
+
+async function apiRemoveMember(email) {
+  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
+  const me = await sbGetMember(_sbUserEmail);
+  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
+    method: 'PATCH',
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify({ active: false })
   });
 }
 
@@ -376,11 +428,50 @@ function useApp(){
     finally{ setDriveSyncing(false); }
   };
 
+  // ── Auto-backup to Google Drive (daily) ─────────────────────────────────
+  const autoBackup = async (state) => {
+    try {
+      const lastBackup = parseInt(localStorage.getItem('arch_last_backup') || '0');
+      if (Date.now() - lastBackup < 23 * 60 * 60 * 1000) return; // max once per 23h
+      if (!gIsSignedIn()) return;
+      const s = state || getState();
+      const blob = new Blob([JSON.stringify(s, null, 2)], {type: 'application/json'});
+      const token = _gAccessToken;
+      // Check for existing backup file
+      const listRes = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='archstudio-backup.json'&fields=files(id)", {
+        headers: {Authorization: 'Bearer ' + token}
+      });
+      const listData = await listRes.json();
+      const fileId = listData.files?.[0]?.id;
+      const meta = JSON.stringify({name: 'archstudio-backup.json', parents: fileId ? undefined : ['appDataFolder']});
+      const form = new FormData();
+      form.append('metadata', new Blob([meta], {type: 'application/json'}));
+      form.append('file', blob);
+      const url = fileId
+        ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&spaces=appDataFolder';
+      await fetch(url, {method: fileId ? 'PATCH' : 'POST', headers: {Authorization: 'Bearer ' + token}, body: form});
+      localStorage.setItem('arch_last_backup', Date.now().toString());
+      console.log('✅ Auto-backup to Google Drive complete');
+    } catch(e) { console.warn('Auto-backup failed:', e); }
+  };
+
+  const manualBackup = () => {
+    const s = getState();
+    const blob = new Blob([JSON.stringify(s, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `archstudio-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Auto-save on any state change
   useEffect(()=>{
     if(!driveReady||!gIsSignedIn())return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
-    saveTimer.current=setTimeout(()=>driveSave(getState()),2000);
+    saveTimer.current=setTimeout(()=>{const s=getState();driveSave(s);autoBackup(s);},2000);
   },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
 
   return {
@@ -392,6 +483,20 @@ function useApp(){
     addTask:t=>setT(ts=>[...ts,{...t,id:uid(),parent_task_id:t.parent_task_id||null,depends_on:t.depends_on||[],notes:t.notes||[],description:t.description||''}]),
     updTask:(id,ch)=>setT(ts=>{
       let updated=ts.map(t=>t.id===id?{...t,...ch}:t);
+      // Check readiness: if a task's deps + subtasks are all Done → mark as ready, auto-promote to High
+      updated=updated.map(t=>{
+        if(t.status==='To Do'||t.status==='Blocked'){
+          const deps=t.depends_on||[];
+          const subtasks=updated.filter(x=>x.parent_task_id===t.id);
+          const depsAllDone=deps.length>0&&deps.every(did=>{const d=updated.find(x=>x.id===did);return d&&d.status==='Done';});
+          const subsAllDone=subtasks.length===0||subtasks.every(x=>x.status==='Done');
+          const wasReady=t._ready;
+          const isReady=depsAllDone&&subsAllDone&&deps.length>0;
+          if(isReady&&!wasReady) return{...t,_ready:true,priority:'High'};
+          if(!isReady&&wasReady) return{...t,_ready:false};
+        }
+        return t;
+      });
       // Walk up the tree and auto-promote ancestors
       if(ch.status){
         let curId=id;
@@ -447,6 +552,7 @@ function useApp(){
     updLeadTask:(lid,tid,ch)=>setLeads(ls=>ls.map(l=>l.id===lid?{...l,tasks:l.tasks.map(t=>t.id===tid?{...t,...ch}:t)}:l)),
     delLeadTask:(lid,tid)=>setLeads(ls=>ls.map(l=>l.id===lid?{...l,tasks:l.tasks.filter(t=>t.id!==tid)}:l)),
     saveTpl:tpl=>setTpl(ts=>[...ts,{...tpl,id:uid(),created:new Date().toISOString().split('T')[0]}]),
+    manualBackup, autoBackup,
     delTpl:id=>setTpl(ts=>ts.filter(t=>t.id!==id)),
   };
 }
@@ -1006,6 +1112,9 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     const childDone=children.filter(t=>t.status==='Done').length;
     const allChildDone=hasChildren&&childDone===children.length;
     const anyChildDone=hasChildren&&childDone>0;
+    // Ready to execute: has dependencies, all deps Done, all subtasks Done, not yet started
+    const deps=task.depends_on||[];
+    const isReady=task._ready===true&&(task.status==='To Do'||task.status==='Blocked');
 
     // indent via depth
     const indent=depth*18;
@@ -1052,6 +1161,9 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
         {/* Dependency icon */}
         {(task.depends_on||[]).length>0&&<span style={{fontSize:11,color:bl?'#EF4444':'#C0C0C0'}}>{bl?'⛔':'🔗'}</span>}
+
+        {/* Ready to execute badge */}
+        {isReady&&<span style={{display:'inline-flex',alignItems:'center',gap:3,background:'#ECFDF5',color:'#065F46',border:'1.5px solid #34D399',borderRadius:999,padding:'2px 8px',fontSize:10,fontWeight:800,flexShrink:0,animation:'readyPulse 1.8s ease-in-out infinite'}}>⚡ מוכן לביצוע</span>}
 
         {/* Priority dot */}
         <span style={{color:PRI[task.priority||'Medium'],fontSize:depth===0?12:10,flexShrink:0}}>●</span>
@@ -2581,10 +2693,112 @@ function ReportsPage({db,nav}){
 // ─── App Settings Page ────────────────────────────────────────────────────────
 function AppSettingsPage({db,currentUserId,onSetCurrentUser}){
   const [saved,setSaved]=useState(false);
+  const [members,setMembers]=useState([]);
+  const [loadingMembers,setLoadingMembers]=useState(true);
+  const [addForm,setAddForm]=useState({email:'',name:'',role:'drafter'});
+  const [addErr,setAddErr]=useState('');
+  const [addOk,setAddOk]=useState('');
+  const [adding,setAdding]=useState(false);
+  const [currentMember,setCurrentMember]=useState(null);
+
+  useEffect(()=>{
+    apiGetMembers().then(m=>{setMembers(m||[]);setLoadingMembers(false);}).catch(()=>setLoadingMembers(false));
+    sbGetMember(sessionStorage.getItem('arch_email')).then(setCurrentMember).catch(()=>{});
+  },[]);
+
+  const isAdmin=currentMember?.role==='admin';
+
   const save=id=>{onSetCurrentUser(id);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+
+  const doAdd=async()=>{
+    if(!addForm.email.trim()){setAddErr('נא להזין כתובת אימייל');return;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addForm.email.trim())){setAddErr('כתובת אימייל לא תקינה');return;}
+    setAdding(true);setAddErr('');setAddOk('');
+    try{
+      await apiAddMember(addForm.email.trim(), addForm.name.trim()||addForm.email.trim(), addForm.role);
+      const updated=await apiGetMembers();
+      setMembers(updated||[]);
+      setAddForm({email:'',name:'',role:'drafter'});
+      setAddOk('המשתמש נוסף בהצלחה! הוא יוכל להיכנס עם חשבון Google שלו.');
+      setTimeout(()=>setAddOk(''),5000);
+    }catch(e){setAddErr('שגיאה: '+e.message);}
+    setAdding(false);
+  };
+
+  const doRemove=async(email)=>{
+    if(!window.confirm('להסיר את '+email+' מהמשרד?'))return;
+    try{
+      await apiRemoveMember(email);
+      setMembers(m=>m.filter(x=>x.email!==email));
+    }catch(e){alert('שגיאה: '+e.message);}
+  };
+
+  const doChangeRole=async(email,role)=>{
+    try{
+      await apiUpdateMember(email,role,[]);
+      setMembers(m=>m.map(x=>x.email===email?{...x,role}:x));
+    }catch(e){alert('שגיאה: '+e.message);}
+  };
+
+  const ROLE_LABELS={'admin':'מנהל ראשי','manager':'מנהל משרד','drafter':'שרטט','client':'לקוח'};
+  const ROLE_COLORS={'admin':'#1D4ED8','manager':'#065F46','drafter':'#B45309','client':'#6B7280'};
+
   return<div>
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>הגדרות</h1>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:22}}>הגדרות המערכת האישיות שלך</p>
+
+    {/* ── Team Members ── */}
+    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:16}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:600}}>צוות המשרד</div>
+          <div style={{fontSize:12,color:'#8C8C8C',marginTop:2}}>הוסף עמיתים לפי כתובת Gmail שלהם</div>
+        </div>
+      </div>
+
+      {/* Members list */}
+      {loadingMembers?<div style={{color:'#8C8C8C',fontSize:13,padding:'8px 0'}}>טוען...</div>:
+      <div style={{marginBottom:isAdmin?16:0}}>
+        {members.map(m=>(
+          <div key={m.email} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:'1px solid #F5F5F3'}}>
+            {m.picture?<img src={m.picture} style={{width:34,height:34,borderRadius:'50%',flexShrink:0}} alt=""/>
+              :<div style={{width:34,height:34,borderRadius:'50%',background:'#E8E6E1',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:600,color:'#5A5A5A',flexShrink:0}}>{(m.name||m.email)[0]}</div>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name||m.email}</div>
+              <div style={{fontSize:11,color:'#8C8C8C',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email}</div>
+            </div>
+            {isAdmin&&m.email!==sessionStorage.getItem('arch_email')
+              ?<select value={m.role} onChange={e=>doChangeRole(m.email,e.target.value)}
+                  style={{height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:12,color:ROLE_COLORS[m.role],fontFamily:'Heebo,sans-serif',background:'white'}}>
+                  {Object.entries(ROLE_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                </select>
+              :<span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,background:'#F0F0F0',color:ROLE_COLORS[m.role]}}>{ROLE_LABELS[m.role]||m.role}</span>}
+            {isAdmin&&m.email!==sessionStorage.getItem('arch_email')&&
+              <button onClick={()=>doRemove(m.email)} style={{background:'none',border:'none',cursor:'pointer',color:'#DC2626',fontSize:16,padding:4,lineHeight:1}} title="הסר מהמשרד">✕</button>}
+          </div>
+        ))}
+      </div>}
+
+      {/* Add member form — admins only */}
+      {isAdmin&&<div style={{background:'#FAFAF8',borderRadius:10,padding:14,border:'1px solid #F0EDE8'}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>הוסף חבר צוות חדש</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+          <I label="כתובת Gmail *" value={addForm.email} onChange={e=>setAddForm(f=>({...f,email:e.target.value}))} placeholder="name@gmail.com" type="email"/>
+          <I label="שם (אופציונלי)" value={addForm.name} onChange={e=>setAddForm(f=>({...f,name:e.target.value}))} placeholder="שם מלא"/>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+          <div style={{flex:1}}>
+            <SE label="תפקיד" value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))}>
+              {Object.entries(ROLE_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+            </SE>
+          </div>
+          <Btn onClick={doAdd} disabled={adding} sx={{height:38,marginBottom:0}}>{adding?'מוסיף...':'+ הוסף'}</Btn>
+        </div>
+        {addErr&&<div style={{marginTop:8,fontSize:12,color:'#DC2626',background:'#FEF2F2',padding:'6px 10px',borderRadius:6}}>{addErr}</div>}
+        {addOk&&<div style={{marginTop:8,fontSize:12,color:'#065F46',background:'#ECFDF5',padding:'6px 10px',borderRadius:6}}>✓ {addOk}</div>}
+        <div style={{marginTop:8,fontSize:11,color:'#9C9C9C'}}>המשתמש יוכל להיכנס עם חשבון Google שלו מיד לאחר ההוספה.</div>
+      </div>}
+    </div>
 
     <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,maxWidth:480,marginBottom:16}}>
       <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>הפרופיל שלי</div>
@@ -2617,6 +2831,20 @@ function AppSettingsPage({db,currentUserId,onSetCurrentUser}){
           <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'#6B6B6B'}}>{l}</div><div style={{fontSize:12,color:'#B0B0B0'}}>{d}</div></div>
           <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:999,background:'#F3F4F6',color:'#9CA3AF'}}>{s}</span>
         </div>)}
+      </div>
+    </div>
+
+    {/* ── Backup ── */}
+    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:16}}>
+      <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>גיבוי נתונים</div>
+      <div style={{fontSize:12,color:'#8C8C8C',marginBottom:12}}>גיבוי אוטומטי יומי ל-Google Drive. ניתן גם להוריד עכשיו.</div>
+      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <Btn v="outline" onClick={()=>db.manualBackup()}>⬇ הורד גיבוי עכשיו</Btn>
+        <span style={{fontSize:11,color:'#9C9C9C'}}>
+          {localStorage.getItem('arch_last_backup')
+            ? 'גיבוי אחרון: '+new Date(parseInt(localStorage.getItem('arch_last_backup'))).toLocaleString('he-IL')
+            : 'טרם בוצע גיבוי אוטומטי'}
+        </span>
       </div>
     </div>
   </div>;

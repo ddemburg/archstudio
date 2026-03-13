@@ -1088,10 +1088,19 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   const proj=allProjs.find(p=>p.id===pid)||{};
   const secDeps=proj.section_deps||{};  // { 'secName': ['depSec1', 'depSec2'] }
 
-  // Is a section fully done? (all its tasks Done)
+  // Is a section fully done? (all tasks + subtasks Done recursively)
+  const getAllDescendants=(taskId)=>{
+    const children=allTasks.filter(t=>t.parent_task_id===taskId);
+    return [taskId,...children.flatMap(ch=>getAllDescendants(ch.id))];
+  };
   const isSecDone=sec=>{
     const ts=bySec(sec);
-    return ts.length>0&&ts.every(t=>t.status==='Done');
+    if(ts.length===0) return false;
+    const allIds=ts.flatMap(t=>getAllDescendants(t.id));
+    return allIds.every(id=>{
+      const t=allTasks.find(x=>x.id===id);
+      return t&&t.status==='Done';
+    });
   };
 
   // Are a section's dependencies all done?
@@ -1101,11 +1110,18 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     return deps.every(d=>isSecDone(d));
   };
 
-  // Toggle all tasks in a section to Done or back to To Do
+  // Toggle all tasks in a section to Done or back to To Do (recursive — includes subtasks)
   const toggleSecDone=sec=>{
     const ts=bySec(sec);
-    const allDone=ts.every(t=>t.status==='Done');
-    ts.forEach(t=>db.updTask(t.id,{status:allDone?'To Do':'Done'}));
+    const allDone=ts.length>0&&ts.every(t=>t.status==='Done');
+    const newStatus=allDone?'To Do':'Done';
+    // Collect all task IDs recursively (task + all descendants)
+    const collectIds=(taskId)=>{
+      const children=allTasks.filter(t=>t.parent_task_id===taskId);
+      return [taskId,...children.flatMap(ch=>collectIds(ch.id))];
+    };
+    const allIds=ts.flatMap(t=>collectIds(t.id));
+    allIds.forEach(id=>db.updTask(id,{status:newStatus}));
   };
 
   // Save section deps

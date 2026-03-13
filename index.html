@@ -1682,7 +1682,7 @@ function ApprovalsTab({approvs,pid,db}){
 function SettingsTab({project,db,onDel,currentUser}){
   const [form,setF]=useState({name:project.name||'',address:project.address||'',status:project.status||'Planning',
     client_name:project.client_name||'',client_email:project.client_email||'',client_phone:project.client_phone||'',
-    clients:project.clients||[],
+    client_ids:project.client_ids||[],
     budget:project.budget||'',notes:project.notes||'',start_date:project.start_date||'',target_completion:project.target_completion||'',planning_committee_id:project.planning_committee_id||'',zone:project.zone||'',manager_id:project.manager_id||''});
   const [saved,setSaved]=useState(false);
   const [showTpl,setShowTpl]=useState(false);
@@ -1699,21 +1699,7 @@ function SettingsTab({project,db,onDel,currentUser}){
     const comm=db.committees.find(x=>x.id===form.planning_committee_id);
     db.updProject(project.id,{...form,budget:form.budget?Number(form.budget):undefined,planning_committee:comm?comm.name:''});
     // Sync clients → CRM: add if email not already in CRM
-    const crmSyncClients=form.clients||[];
-    crmSyncClients.forEach(cl=>{
-      if(!cl.name.trim()) return;
-      const existing=db.crm.find(x=>x.email&&x.email===cl.email);
-      if(existing){
-        // Link project if not already linked
-        if(!(existing.project_ids||[]).includes(project.id)){
-          db.updCRM(existing.id,{project_ids:[...(existing.project_ids||[]),project.id]});
-        }
-      } else {
-        // Create new CRM entry
-        db.addCRM({type:'client',name:cl.name,email:cl.email||'',phone:cl.phone||'',company:'',
-          notes:'',tags:[],project_ids:[project.id],id_number:cl.id_number||''});
-      }
-    });
+    
     setSaved(true);setTimeout(()=>setSaved(false),2000);
   };
   const byType=db.committees.reduce((acc,c)=>{if(!acc[c.type])acc[c.type]=[];acc[c.type].push(c);return acc;},{});
@@ -1752,69 +1738,45 @@ function SettingsTab({project,db,onDel,currentUser}){
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
         <div style={{fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase'}}>לקוחות</div>
         <div style={{display:'flex',gap:6}}>
-          <button onClick={()=>u('clients',[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]),{name:'',email:'',phone:'',id_number:''}])} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B'}}>+ הוסף ידנית</button>
           <select onChange={e=>{
             if(!e.target.value) return;
             const crmc=db.crm.find(x=>x.id===e.target.value);
             if(!crmc) return;
-            const cur=form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}];
-            // Don't add if already in list
-            if(cur.some(x=>x.email&&x.email===crmc.email)){e.target.value='';return;}
-            u('clients',[...cur,{name:crmc.name,email:crmc.email||'',phone:crmc.phone||'',id_number:crmc.id_number||''}]);
+            const cur=form.client_ids||[];
+            if(cur.includes(crmc.id)){e.target.value='';return;}
+            u('client_ids',[...cur,crmc.id]);
             e.target.value='';
-          }} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B',fontFamily:'Heebo,sans-serif'}}>
+          }} style={{fontSize:11,background:'none',border:'1px solid #4a7c5e',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#4a7c5e',fontFamily:'Heebo,sans-serif'}}>
             <option value="">+ בחר מ-CRM</option>
-            {(db.crm||[]).filter(x=>x.type==='client').map(x=><option key={x.id} value={x.id}>{x.name}{x.email?' — '+x.email:''}</option>)}
+            {(db.crm||[]).filter(x=>x.type==='client'&&!(form.client_ids||[]).includes(x.id)).map(x=><option key={x.id} value={x.id}>{x.name}{x.id_number?' | ת"ז '+x.id_number:''}</option>)}
           </select>
+          <button onClick={()=>{
+            const name=window.prompt('שם הלקוח החדש:');
+            if(!name?.trim()) return;
+            const newId=uid();
+            db.addCRM({id:newId,type:'client',name:name.trim(),phone:'',email:'',id_number:'',company:'',role:'',notes:'',project_ids:[],tags:[]});
+            u('client_ids',[...(form.client_ids||[]),newId]);
+          }} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B'}}>+ חדש ב-CRM</button>
         </div>
       </div>
-      {(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]).map((cl,ci)=>
-        <div key={ci} style={{background:'#F9F8F7',borderRadius:8,padding:10,marginBottom:8,position:'relative'}}>
-          {(()=>{
-            const updCl=(field,val)=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],[field]:val};u('clients',cls);};
-            const validEmail=!cl.email||/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cl.email);
-            const validPhone=!cl.phone||/^[0-9+\-\s()]{7,15}$/.test(cl.phone.trim());
-            const validID=!cl.id_number||/^[0-9]{9}$/.test(cl.id_number.replace(/-/g,''));
-            const crmMatches=cl.name.trim().length>=2
-              ? (db.crm||[]).filter(x=>x.name?.includes(cl.name)||cl.name.includes(x.name?.split(' ')[0]||'__'))
-              : [];
-            const fillFromCRM=crmc=>{updCl('name',crmc.name);updCl('email',crmc.email||cl.email);updCl('phone',crmc.phone||cl.phone);};
-            return<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <div style={{position:'relative'}}>
-                <I label="שם לקוח" value={cl.name} onChange={e=>updCl('name',e.target.value)}/>
-                {crmMatches.length>0&&<div style={{position:'absolute',top:'100%',right:0,left:0,background:'white',border:'1px solid #E8E6E1',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.1)',zIndex:50,maxHeight:160,overflowY:'auto'}}>
-                  <div style={{fontSize:10,color:'#8C8C8C',padding:'6px 10px 2px',fontWeight:600}}>נמצא ב-CRM:</div>
-                  {crmMatches.map(crmc=><div key={crmc.id} onClick={()=>fillFromCRM(crmc)}
-                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,borderTop:'1px solid #F5F5F3'}}
-                    onMouseOver={e=>e.currentTarget.style.background='#F5FBF7'}
-                    onMouseOut={e=>e.currentTarget.style.background='white'}>
-                    <div style={{width:28,height:28,borderRadius:'50%',background:'#4a7c5e',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>{crmc.name?.[0]}</div>
-                    <div>
-                      <div style={{fontWeight:600}}>{crmc.name}</div>
-                      <div style={{fontSize:11,color:'#8C8C8C'}}>{crmc.phone||crmc.email||''}</div>
-                    </div>
-                    <span style={{marginRight:'auto',fontSize:10,color:'#4a7c5e',fontWeight:600}}>שייך ←</span>
-                  </div>)}
-                </div>}
-              </div>
-              <div style={{position:'relative'}}>
-                <I label="תעודת זהות" value={cl.id_number||''} onChange={e=>updCl('id_number',e.target.value)}/>
-                {cl.id_number&&!validID&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ ת"ז חייבת להיות 9 ספרות</div>}
-              </div>
-              <div>
-                <I label="אימייל" value={cl.email} onChange={e=>updCl('email',e.target.value)}/>
-                {cl.email&&!validEmail&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ כתובת אימייל לא תקינה</div>}
-              </div>
-              <div>
-                <I label="טלפון" value={cl.phone} onChange={e=>updCl('phone',e.target.value)}/>
-                {cl.phone&&!validPhone&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ מספר טלפון לא תקין</div>}
-              </div>
-            </div>;
-          })()}
-          {(form.clients||[]).length>1&&<button onClick={()=>{const cls=[...(form.clients||[])];cls.splice(ci,1);u('clients',cls);}} style={{position:'absolute',top:8,left:8,background:'none',border:'none',cursor:'pointer',fontSize:12,color:'#C0C0C0'}} title="הסר לקוח">✕</button>}
-        </div>
-      )}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+      {(form.client_ids||[]).length===0&&<div style={{fontSize:12,color:'#B0B0B0',padding:'8px 0',fontStyle:'italic'}}>לא שויך לקוח לפרויקט זה</div>}
+      {(form.client_ids||[]).map(cid=>{
+        const crmc=db.crm.find(x=>x.id===cid);
+        if(!crmc) return null;
+        return<div key={cid} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 10px',background:'#F9F8F7',borderRadius:8,marginBottom:6}}>
+          <div style={{width:32,height:32,borderRadius:'50%',background:'#4a7c5e',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:13,flexShrink:0}}>{crmc.name?.[0]}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600}}>{crmc.name}</div>
+            <div style={{fontSize:11,color:'#8C8C8C',display:'flex',gap:8,flexWrap:'wrap'}}>
+              {crmc.id_number&&<span>ת"ז: {crmc.id_number}</span>}
+              {crmc.phone&&<span>📞 {crmc.phone}</span>}
+              {crmc.email&&<span>✉ {crmc.email}</span>}
+            </div>
+          </div>
+          <button onClick={()=>u('client_ids',(form.client_ids||[]).filter(x=>x!==cid))} style={{background:'none',border:'none',cursor:'pointer',color:'#C0C0C0',fontSize:14}} title="הסר מפרויקט">✕</button>
+        </div>;
+      })}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
         {/* keep budget/dates below */}
         <I label="תקציב ₪" type="number" value={form.budget} onChange={e=>u('budget',e.target.value)}/>
         <I label="התחלה" type="date" value={form.start_date} onChange={e=>u('start_date',e.target.value)}/>
@@ -2531,7 +2493,7 @@ function CRMPage({db,nav,currentUser}){
   const [search,setSearch]=useState('');
   const [showForm,setShowForm]=useState(false);
   const [editId,setEditId]=useState(null);
-  const blank={type:'client',name:'',company:'',phone:'',email:'',role:'',notes:'',project_ids:[],tags:[]};
+  const blank={type:'client',name:'',company:'',phone:'',email:'',role:'',id_number:'',notes:'',project_ids:[],tags:[]};
   const [form,setForm]=useState(blank);
   const [tagInput,setTagInput]=useState('');
 
@@ -2545,7 +2507,7 @@ function CRMPage({db,nav,currentUser}){
     if(editId)db.updCRM(editId,form);else db.addCRM(form);
     setForm(blank);setEditId(null);setShowForm(false);setTagInput('');
   };
-  const startEdit=c=>{setForm({type:c.type,name:c.name,company:c.company||'',phone:c.phone||'',email:c.email||'',role:c.role||'',notes:c.notes||'',project_ids:c.project_ids||[],tags:c.tags||[]});setEditId(c.id);setShowForm(true);};
+  const startEdit=c=>{setForm({type:c.type,name:c.name,company:c.company||'',phone:c.phone||'',email:c.email||'',role:c.role||'',id_number:c.id_number||'',notes:c.notes||'',project_ids:c.project_ids||[],tags:c.tags||[]});setEditId(c.id);setShowForm(true);};
 
   const filtered=db.crm.filter(c=>{
     const mt=tab==='all'||c.type===tab;
@@ -2589,6 +2551,7 @@ function CRMPage({db,nav,currentUser}){
         <I label="תפקיד / התמחות" value={form.role} onChange={e=>u('role',e.target.value)} placeholder="מהנדס קונסטרוקציה..."/>
         <I label="טלפון" value={form.phone} onChange={e=>u('phone',e.target.value)} placeholder="050-0000000"/>
         <I label="אימייל" value={form.email} onChange={e=>u('email',e.target.value)} placeholder="email@example.com"/>
+        <I label="תעודת זהות" value={form.id_number||''} onChange={e=>u('id_number',e.target.value)} placeholder="9 ספרות"/>
       </div>
       {/* Tags */}
       <div style={{marginBottom:10}}>
@@ -2639,6 +2602,7 @@ function CRMPage({db,nav,currentUser}){
             <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:c.tags?.length||linkedProjs.length?6:0}}>
               {c.phone&&<a href={'tel:'+c.phone} style={{fontSize:12,color:'#4a7c5e',textDecoration:'none'}}>📞 {c.phone}</a>}
               {c.email&&<a href={'mailto:'+c.email} style={{fontSize:12,color:'#4a7c5e',textDecoration:'none'}}>✉️ {c.email}</a>}
+              {c.id_number&&<span style={{fontSize:12,color:'#8C8C8C'}}>ת"ז: {c.id_number}</span>}
             </div>
             <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
               {(c.tags||[]).map(t=><span key={t} style={{fontSize:11,padding:'1px 7px',borderRadius:999,background:'#F3F4F6',color:'#6B7280'}}>{t}</span>)}

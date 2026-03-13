@@ -520,6 +520,7 @@ function useApp(){
       }
       return updated;
     }),
+    batchUpdTasks:(ids,ch)=>setT(ts=>ts.map(t=>ids.includes(t.id)?{...t,...ch}:t)),
     delTask:id=>setT(ts=>{
       const toDelete=new Set([id]);
       let changed=true;
@@ -1110,18 +1111,26 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     return deps.every(d=>isSecDone(d));
   };
 
-  // Toggle all tasks in a section to Done or back to To Do (recursive — includes subtasks)
+  // Toggle all tasks in a section to Done or back to To Do (batch — no auto-promote)
   const toggleSecDone=sec=>{
     const ts=bySec(sec);
-    const allDone=ts.length>0&&ts.every(t=>t.status==='Done');
+    if(ts.length===0) return;
+    const allDone=ts.every(t=>t.status==='Done');
     const newStatus=allDone?'To Do':'Done';
-    // Collect all task IDs recursively (task + all descendants)
-    const collectIds=(taskId)=>{
-      const children=allTasks.filter(t=>t.parent_task_id===taskId);
-      return [taskId,...children.flatMap(ch=>collectIds(ch.id))];
+    // Collect ALL descendant IDs (BFS)
+    const collectBFS=(rootIds)=>{
+      const result=[];
+      const queue=[...rootIds];
+      while(queue.length){
+        const id=queue.shift();
+        result.push(id);
+        allTasks.filter(t=>t.parent_task_id===id).forEach(ch=>queue.push(ch.id));
+      }
+      return result;
     };
-    const allIds=ts.flatMap(t=>collectIds(t.id));
-    allIds.forEach(id=>db.updTask(id,{status:newStatus}));
+    const allIds=collectBFS(ts.map(t=>t.id));
+    // Single batch update — bypasses auto-promote logic entirely
+    db.batchUpdTasks(allIds,{status:newStatus});
   };
 
   // Save section deps

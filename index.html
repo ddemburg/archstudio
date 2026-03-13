@@ -1688,7 +1688,34 @@ function SettingsTab({project,db,onDel,currentUser}){
   const [showTpl,setShowTpl]=useState(false);
   const [tplName,setTplName]=useState('');
   const u=(k,v)=>setF(f=>({...f,[k]:v}));
-  const save=()=>{const c=db.committees.find(x=>x.id===form.planning_committee_id);db.updProject(project.id,{...form,budget:form.budget?Number(form.budget):undefined,planning_committee:c?c.name:''});setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const save=()=>{
+    // Validate clients before saving
+    const clients=form.clients||[];
+    for(const cl of clients){
+      if(cl.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cl.email)){alert('אימייל לא תקין: '+cl.email);return;}
+      if(cl.phone&&!/^[0-9+\-\s()]{7,15}$/.test(cl.phone.trim())){alert('טלפון לא תקין: '+cl.phone);return;}
+      if(cl.id_number&&!/^[0-9]{9}$/.test(cl.id_number.replace(/-/g,''))){alert('תעודת זהות לא תקינה (חייבת להיות 9 ספרות): '+cl.id_number);return;}
+    }
+    const comm=db.committees.find(x=>x.id===form.planning_committee_id);
+    db.updProject(project.id,{...form,budget:form.budget?Number(form.budget):undefined,planning_committee:comm?comm.name:''});
+    // Sync clients → CRM: add if email not already in CRM
+    const clients=form.clients||[];
+    clients.forEach(cl=>{
+      if(!cl.name.trim()) return;
+      const existing=db.crm.find(x=>x.email&&x.email===cl.email);
+      if(existing){
+        // Link project if not already linked
+        if(!(existing.project_ids||[]).includes(project.id)){
+          db.updCRM(existing.id,{project_ids:[...(existing.project_ids||[]),project.id]});
+        }
+      } else {
+        // Create new CRM entry
+        db.addCRM({type:'client',name:cl.name,email:cl.email||'',phone:cl.phone||'',company:'',
+          notes:'',tags:[],project_ids:[project.id],id_number:cl.id_number||''});
+      }
+    });
+    setSaved(true);setTimeout(()=>setSaved(false),2000);
+  };
   const byType=db.committees.reduce((acc,c)=>{if(!acc[c.type])acc[c.type]=[];acc[c.type].push(c);return acc;},{});
 
   const myTasks=db.tasks.filter(t=>t.project_id===project.id);
@@ -1724,16 +1751,66 @@ function SettingsTab({project,db,onDel,currentUser}){
     <div style={{borderTop:'1px solid #F5F5F3',paddingTop:10}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
         <div style={{fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase'}}>לקוחות</div>
-        <button onClick={()=>u('clients',[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]),{name:'',email:'',phone:'',id_number:''}])} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B'}}>+ הוסף לקוח</button>
+        <div style={{display:'flex',gap:6}}>
+          <button onClick={()=>u('clients',[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]),{name:'',email:'',phone:'',id_number:''}])} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B'}}>+ הוסף ידנית</button>
+          <select onChange={e=>{
+            if(!e.target.value) return;
+            const crmc=db.crm.find(x=>x.id===e.target.value);
+            if(!crmc) return;
+            const cur=form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}];
+            // Don't add if already in list
+            if(cur.some(x=>x.email&&x.email===crmc.email)){e.target.value='';return;}
+            u('clients',[...cur,{name:crmc.name,email:crmc.email||'',phone:crmc.phone||'',id_number:crmc.id_number||''}]);
+            e.target.value='';
+          }} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B',fontFamily:'Heebo,sans-serif'}}>
+            <option value="">+ בחר מ-CRM</option>
+            {(db.crm||[]).filter(x=>x.type==='client').map(x=><option key={x.id} value={x.id}>{x.name}{x.email?' — '+x.email:''}</option>)}
+          </select>
+        </div>
       </div>
       {(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]).map((cl,ci)=>
         <div key={ci} style={{background:'#F9F8F7',borderRadius:8,padding:10,marginBottom:8,position:'relative'}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            <I label="שם לקוח" value={cl.name} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],name:e.target.value};u('clients',cls);}}/>
-            <I label="תעודת זהות" value={cl.id_number||''} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],id_number:e.target.value};u('clients',cls);}}/>
-            <I label="אימייל" value={cl.email} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],email:e.target.value};u('clients',cls);}}/>
-            <I label="טלפון" value={cl.phone} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],phone:e.target.value};u('clients',cls);}}/>
-          </div>
+          {(()=>{
+            const updCl=(field,val)=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],[field]:val};u('clients',cls);};
+            const validEmail=!cl.email||/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cl.email);
+            const validPhone=!cl.phone||/^[0-9+\-\s()]{7,15}$/.test(cl.phone.trim());
+            const validID=!cl.id_number||/^[0-9]{9}$/.test(cl.id_number.replace(/-/g,''));
+            const crmMatches=cl.name.trim().length>=2
+              ? (db.crm||[]).filter(x=>x.name?.includes(cl.name)||cl.name.includes(x.name?.split(' ')[0]||'__'))
+              : [];
+            const fillFromCRM=crmc=>{updCl('name',crmc.name);updCl('email',crmc.email||cl.email);updCl('phone',crmc.phone||cl.phone);};
+            return<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div style={{position:'relative'}}>
+                <I label="שם לקוח" value={cl.name} onChange={e=>updCl('name',e.target.value)}/>
+                {crmMatches.length>0&&<div style={{position:'absolute',top:'100%',right:0,left:0,background:'white',border:'1px solid #E8E6E1',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.1)',zIndex:50,maxHeight:160,overflowY:'auto'}}>
+                  <div style={{fontSize:10,color:'#8C8C8C',padding:'6px 10px 2px',fontWeight:600}}>נמצא ב-CRM:</div>
+                  {crmMatches.map(crmc=><div key={crmc.id} onClick={()=>fillFromCRM(crmc)}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,borderTop:'1px solid #F5F5F3'}}
+                    onMouseOver={e=>e.currentTarget.style.background='#F5FBF7'}
+                    onMouseOut={e=>e.currentTarget.style.background='white'}>
+                    <div style={{width:28,height:28,borderRadius:'50%',background:'#4a7c5e',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>{crmc.name?.[0]}</div>
+                    <div>
+                      <div style={{fontWeight:600}}>{crmc.name}</div>
+                      <div style={{fontSize:11,color:'#8C8C8C'}}>{crmc.phone||crmc.email||''}</div>
+                    </div>
+                    <span style={{marginRight:'auto',fontSize:10,color:'#4a7c5e',fontWeight:600}}>שייך ←</span>
+                  </div>)}
+                </div>}
+              </div>
+              <div style={{position:'relative'}}>
+                <I label="תעודת זהות" value={cl.id_number||''} onChange={e=>updCl('id_number',e.target.value)}/>
+                {cl.id_number&&!validID&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ ת"ז חייבת להיות 9 ספרות</div>}
+              </div>
+              <div>
+                <I label="אימייל" value={cl.email} onChange={e=>updCl('email',e.target.value)}/>
+                {cl.email&&!validEmail&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ כתובת אימייל לא תקינה</div>}
+              </div>
+              <div>
+                <I label="טלפון" value={cl.phone} onChange={e=>updCl('phone',e.target.value)}/>
+                {cl.phone&&!validPhone&&<div style={{fontSize:10,color:'#DC2626',marginTop:2}}>⚠ מספר טלפון לא תקין</div>}
+              </div>
+            </div>;
+          })()}
           {(form.clients||[]).length>1&&<button onClick={()=>{const cls=[...(form.clients||[])];cls.splice(ci,1);u('clients',cls);}} style={{position:'absolute',top:8,left:8,background:'none',border:'none',cursor:'pointer',fontSize:12,color:'#C0C0C0'}} title="הסר לקוח">✕</button>}
         </div>
       )}

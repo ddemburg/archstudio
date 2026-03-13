@@ -2491,8 +2491,7 @@ function LeadsPage({db,nav}){
 function CRMPage({db,nav,currentUser}){
   const [tab,setTab]=useState('all');
   const [search,setSearch]=useState('');
-  const [showForm,setShowForm]=useState(false);
-  const [editId,setEditId]=useState(null);
+  const [openId,setOpenId]=useState(null);   // id of card open for inline edit, or '__new__'
   const blank={type:'client',name:'',company:'',phone:'',email:'',role:'',id_number:'',notes:'',project_ids:[],tags:[]};
   const [form,setForm]=useState(blank);
   const [tagInput,setTagInput]=useState('');
@@ -2501,13 +2500,17 @@ function CRMPage({db,nav,currentUser}){
   const togProj=pid=>u('project_ids',form.project_ids.includes(pid)?form.project_ids.filter(x=>x!==pid):[...form.project_ids,pid]);
   const addTag=()=>{if(!tagInput.trim()||form.tags.includes(tagInput.trim()))return;u('tags',[...form.tags,tagInput.trim()]);setTagInput('');};
   const remTag=t=>u('tags',form.tags.filter(x=>x!==t));
+  const closeForm=()=>{setOpenId(null);setForm(blank);setTagInput('');};
 
   const save=()=>{
     if(!form.name.trim())return;
-    if(editId)db.updCRM(editId,form);else db.addCRM(form);
-    setForm(blank);setEditId(null);setShowForm(false);setTagInput('');
+    if(openId&&openId!=='__new__')db.updCRM(openId,form);else db.addCRM(form);
+    closeForm();
   };
-  const startEdit=c=>{setForm({type:c.type,name:c.name,company:c.company||'',phone:c.phone||'',email:c.email||'',role:c.role||'',id_number:c.id_number||'',notes:c.notes||'',project_ids:c.project_ids||[],tags:c.tags||[]});setEditId(c.id);setShowForm(true);};
+  const startEdit=contact=>{
+    setForm({type:contact.type,name:contact.name,company:contact.company||'',phone:contact.phone||'',email:contact.email||'',role:contact.role||'',id_number:contact.id_number||'',notes:contact.notes||'',project_ids:contact.project_ids||[],tags:contact.tags||[]});
+    setOpenId(contact.id);
+  };
 
   const filtered=db.crm.filter(c=>{
     const mt=tab==='all'||c.type===tab;
@@ -2520,7 +2523,7 @@ function CRMPage({db,nav,currentUser}){
   return<div>
     <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20}}>
       <div><h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>CRM — אנשי קשר</h1><p style={{fontSize:14,color:'#8C8C8C'}}>לקוחות, יועצים, ספקים ורשויות — הכל במקום אחד</p></div>
-      <Btn onClick={()=>{setShowForm(true);setEditId(null);setForm(blank);}}>+ הוסף איש קשר</Btn>
+      <Btn onClick={()=>{setForm(blank);setTagInput('');setOpenId('__new__');}}>+ הוסף איש קשר</Btn>
     </div>
 
     {/* Type tabs */}
@@ -2540,8 +2543,8 @@ function CRMPage({db,nav,currentUser}){
     </div>
 
     {/* Add/Edit Form */}
-    {showForm&&<div className="fade" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:18,boxShadow:'0 2px 12px rgba(0,0,0,.06)'}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>{editId?'עריכת איש קשר':'איש קשר חדש'}</div>
+    {openId==='__new__'&&<div className="fade" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:18,boxShadow:'0 2px 12px rgba(0,0,0,.06)'}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>'איש קשר חדש'</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
         <SE label="סוג" value={form.type} onChange={e=>u('type',e.target.value)}>
           {Object.entries(TYPE_CFG).map(([t,c])=><option key={t} value={t}>{c.e} {c.label.slice(0,-2)||c.label}</option>)}
@@ -2579,8 +2582,8 @@ function CRMPage({db,nav,currentUser}){
       </div>
       <TA label="הערות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={2}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
-        <Btn v="ghost" onClick={()=>{setShowForm(false);setEditId(null);}}>ביטול</Btn>
-        <Btn onClick={save} disabled={!form.name.trim()}>{editId?'שמור':'הוסף'}</Btn>
+        <Btn v="ghost" onClick={closeForm}>ביטול</Btn>
+        <Btn onClick={save} disabled={!form.name.trim()}>'הוסף'</Btn>
       </div>
     </div>}
 
@@ -2590,7 +2593,7 @@ function CRMPage({db,nav,currentUser}){
       {filtered.map(c=>{
         const tc=TYPE_CFG[c.type]||TYPE_CFG.client;
         const linkedProjs=db.projects.filter(p=>(c.project_ids||[]).includes(p.id));
-        return<div key={c.id} className="hc" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:'12px 16px',display:'flex',alignItems:'flex-start',gap:14,transition:'all .2s'}}>
+        return<React.Fragment key={c.id}><div className="hc" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:openId===c.id?'12px 12px 0 0':'12px',padding:'12px 16px',display:'flex',alignItems:'flex-start',gap:14,transition:'all .2s'}}>
           <div style={{width:42,height:42,borderRadius:'50%',background:tc.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{tc.e}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2,flexWrap:'wrap'}}>
@@ -2611,10 +2614,29 @@ function CRMPage({db,nav,currentUser}){
             {c.notes&&<div style={{fontSize:12,color:'#8C8C8C',marginTop:4,fontStyle:'italic'}}>{c.notes}</div>}
           </div>
           <div style={{display:'flex',gap:4,flexShrink:0}}>
-            <Btn v="ghost" sz="sm" onClick={()=>startEdit(c)}>✏️</Btn>
+            <Btn v="ghost" sz="sm" onClick={()=>openId===c.id?closeForm():startEdit(c)}>{openId===c.id?'✕':'✏️'}</Btn>
             <Btn v="ghost" sz="sm" sx={{color:'#EF4444'}} onClick={()=>window.confirm('למחוק?')&&db.delCRM(c.id)}>🗑</Btn>
           </div>
-        </div>;
+        </div>
+        {openId===c.id&&<div className="fade" style={{background:'#F7F9F8',border:'1px solid #D4E8DC',borderRadius:'0 0 12px 12px',padding:16,marginTop:-1}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            <SE label="סוג" value={form.type} onChange={e=>u('type',e.target.value)}>
+              {Object.entries(TYPE_CFG).map(([t,cfg])=><option key={t} value={t}>{cfg.e} {cfg.label.slice(0,-2)||cfg.label}</option>)}
+            </SE>
+            <I label="שם מלא *" value={form.name} onChange={e=>u('name',e.target.value)}/>
+            <I label="חברה / ארגון" value={form.company} onChange={e=>u('company',e.target.value)}/>
+            <I label="תפקיד / התמחות" value={form.role} onChange={e=>u('role',e.target.value)}/>
+            <I label="טלפון" value={form.phone} onChange={e=>u('phone',e.target.value)}/>
+            <I label="אימייל" value={form.email} onChange={e=>u('email',e.target.value)}/>
+            <I label="תעודת זהות" value={form.id_number||''} onChange={e=>u('id_number',e.target.value)} placeholder="9 ספרות"/>
+          </div>
+          <TA label="הערות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={2}/>
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:10}}>
+            <Btn v="ghost" onClick={closeForm}>ביטול</Btn>
+            <Btn onClick={save} disabled={!form.name.trim()}>שמור</Btn>
+          </div>
+        </div>}
+        </React.Fragment>;
       })}
     </div>
   </div>;

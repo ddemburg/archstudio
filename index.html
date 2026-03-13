@@ -2070,7 +2070,7 @@ function PartnersPage({db,nav}){
   return<div>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
       <h1 style={{fontSize:26,fontWeight:600}}>צוות המשרד</h1>
-      <Btn v="outline" onClick={()=>nav('appsettings')}>⚙ ניהול משתמשים</Btn>
+      <Btn v="outline" onClick={()=>nav.toSettings()}>⚙ ניהול משתמשים</Btn>
     </div>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:22}}>רשימת חברי הצוות מנוהלת דרך הגדרות המשרד</p>
 
@@ -3217,6 +3217,7 @@ function App(){
     toReports:()=>navTo('reports',null),
     toCRM:()=>navTo('crm',null),
     toTasks:()=>navTo('tasks',null),
+    toSettings:()=>navTo('appsettings',null),
   };
   const NAV=[{id:'dashboard',l:'לוח בקרה',e:'🏠'},{id:'tasks',l:'משימות',e:'☑️'},{id:'leads',l:'לידים',e:'🎯'},{id:'crm',l:'CRM',e:'👥'},{id:'reports',l:'דוחות',e:'📊'},{id:'partners',l:'צוות',e:'👤'},{id:'committees',l:'ועדות',e:'🏛'},{id:'templates',l:'תבניות',e:'📋'},{id:'appsettings',l:'הגדרות',e:'⚙️'}];
 

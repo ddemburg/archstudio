@@ -2823,8 +2823,7 @@ function ReportsPage({db,nav}){
 }
 
 // ─── App Settings Page ────────────────────────────────────────────────────────
-function AppSettingsPage({db,currentUserId,onSetCurrentUser}){
-  const [saved,setSaved]=useState(false);
+function AppSettingsPage({db}){
   const [members,setMembers]=useState([]);
   const [loadingMembers,setLoadingMembers]=useState(true);
   const [addForm,setAddForm]=useState({email:'',name:'',role:'drafter'});
@@ -2839,8 +2838,6 @@ function AppSettingsPage({db,currentUserId,onSetCurrentUser}){
   },[]);
 
   const isAdmin=currentMember?.role==='admin';
-
-  const save=id=>{onSetCurrentUser(id);setSaved(true);setTimeout(()=>setSaved(false),2000);};
 
   const doAdd=async()=>{
     if(!addForm.email.trim()){setAddErr('נא להזין כתובת אימייל');return;}
@@ -2945,25 +2942,6 @@ function AppSettingsPage({db,currentUserId,onSetCurrentUser}){
     </div>
 
     <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,maxWidth:480,marginBottom:16}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>הפרופיל שלי</div>
-      <p style={{fontSize:13,color:'#8C8C8C',marginBottom:14}}>בחר מי אתה — שמך יופיע כ"אני" בכל מקום במערכת</p>
-      <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        {db.partners.map(p=>{
-          const isSel=p.id===currentUserId;
-          return<div key={p.id} onClick={()=>save(p.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderRadius:9,border:'2px solid '+(isSel?p.color:'#E8E6E1'),background:isSel?p.color+'18':'white',cursor:'pointer',transition:'all .15s'}}>
-            <div style={{width:36,height:36,borderRadius:'50%',background:p.color,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:15,flexShrink:0}}>{p.name[0]}</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:isSel?700:500}}>{p.name} {isSel&&<span style={{fontSize:11,color:p.color}}>(אני)</span>}</div>
-              <div style={{fontSize:12,color:'#8C8C8C'}}>{p.role}</div>
-            </div>
-            {isSel&&<span style={{fontSize:18}}>✓</span>}
-          </div>;
-        })}
-      </div>
-      {saved&&<div style={{marginTop:10,fontSize:13,color:'#4a7c5e',fontWeight:600}}>✓ נשמר!</div>}
-    </div>
-
-    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,maxWidth:480,marginBottom:16}}>
       <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>אינטגרציות עתידיות</div>
       <div style={{display:'flex',flexDirection:'column',gap:10,marginTop:10}}>
         {[
@@ -3053,8 +3031,11 @@ function App(){
   });
   const [showNew,setShowNew]=useState(false);
   const [portalPid,setPortalPid]=useState(null);
-  const [currentUserId,setCurrentUserId]=useState(db.partners[0]?.id||'');
-  const currentUser=db.partners.find(p=>p.id===currentUserId)||db.partners[0];
+  // currentUser is derived from logged-in Google email — no manual selection needed
+  const loggedEmail = sessionStorage.getItem('arch_email')||'';
+  const currentUser = db.partners.find(p=>p.email===loggedEmail) || db.partners[0];
+  const currentUserId = currentUser?.id||'';
+  const setCurrentUserId = ()=>{}; // no-op, kept for prop compatibility
   const [preTpl,setPreTpl]=useState('');
   const [sbFilter,setSBF]=useState('all:All');
   const proj=db.projects.find(p=>p.id===pid);
@@ -3191,8 +3172,14 @@ function App(){
       <div style={{flex:1}}/>
       <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,.08)",flexShrink:0,display:"flex",alignItems:"center",gap:10}}>
         <div style={{width:30,height:30,borderRadius:'50%',background:currentUser?.color||'#4a7c5e',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:600,fontSize:13,flexShrink:0,cursor:'pointer'}} onClick={()=>navTo('appsettings',null)}>{currentUser?.name?.[0]||'א'}</div>
-        <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{currentUser?.name||'מנהל'}</div><div style={{fontSize:11,color:'#8C8C8C'}}>{currentUser?.role||''} • {db.partners.length} בצוות</div></div>
+        <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{currentUser?.name||loggedEmail||'מנהל'}</div><div style={{fontSize:11,color:'#8C8C8C'}}>{currentUser?.role||''} • {db.partners.length} בצוות</div></div>
         <button onClick={()=>navTo('appsettings',null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"rgba(255,255,255,.3)",padding:2,transition:"color .15s"}} onMouseOver={e=>e.target.style.color="rgba(255,255,255,.8)"} onMouseOut={e=>e.target.style.color="rgba(255,255,255,.3)"} title="הגדרות">⚙️</button>
+        <button onClick={()=>{
+          sessionStorage.removeItem('arch_token');
+          sessionStorage.removeItem('arch_email');
+          localStorage.removeItem('arch_hint');
+          window.location.reload();
+        }} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"rgba(255,255,255,.3)",padding:2,transition:"color .15s"}} onMouseOver={e=>e.target.style.color="rgba(255,100,100,.8)"} onMouseOut={e=>e.target.style.color="rgba(255,255,255,.3)"} title="התנתק">🚪</button>
       </div>
     </aside>
 
@@ -3208,7 +3195,7 @@ function App(){
         {page==='partners'   && <PartnersPage db={db} nav={nav}/>}
         {page==='committees' && <CommitteesPage db={db} nav={nav}/>}
         {page==='templates'  && <TemplatesPage db={db} nav={nav} onNewFromTpl={openNewWithTpl}/>}
-        {page==='appsettings' && <AppSettingsPage db={db} currentUserId={currentUserId} onSetCurrentUser={setCurrentUserId}/>}
+        {page==='appsettings' && <AppSettingsPage db={db}/>}
       </div>
     </main>
 

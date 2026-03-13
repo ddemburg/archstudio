@@ -378,6 +378,7 @@ function useApp(){
   const [templates,setTpl]=useState([]);
   const [crm,setCRM]=useState([]);
   const [leads,setLeads]=useState([]);
+  const [officeMembers,setOfficeMembers]=useState([]);
 
   // ── Google Drive sync ──────────────────────────────
   const [driveReady,setDriveReady]=useState(false);
@@ -409,6 +410,7 @@ function useApp(){
         setU(SP); setCRM(SCRM); setLeads(SLEADS);
       }
       setDriveReady(true);
+      apiGetMembers().then(m=>setOfficeMembers(m||[])).catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
   };
@@ -476,7 +478,7 @@ function useApp(){
 
   return {
     driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
-    projects,tasks,docs,reqs,approvs,committees,partners,templates,
+    projects,tasks,docs,reqs,approvs,committees,partners,templates,officeMembers,
     addProject:p=>setP(ps=>[...ps,{...p,id:uid(),milestones:p.milestones||[]}]),
     updProject:(id,ch)=>setP(ps=>ps.map(p=>p.id===id?{...p,...ch}:p)),
     delProject:id=>{setP(ps=>ps.filter(p=>p.id!==id));setT(ts=>ts.filter(t=>t.project_id!==id));setD(ds=>ds.filter(d=>d.project_id!==id));setR(rs=>rs.filter(r=>r.project_id!==id));setA(as=>as.filter(a=>a.project_id!==id));},
@@ -1067,6 +1069,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   const [extras,setExt]=useState([]);
   const [coll,setColl]=useState({});
   const [openId,setOID]=useState(null);
+  const [showSecDep,setShowSecDep]=useState(null); // section name being edited for deps
   const [expanded,setExpanded]=useState({});
   const [editSec,setES]=useState(null);
   const [editingId,setEditingId]=useState(null);
@@ -1080,6 +1083,36 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   const dbSecs=Array.from(new Set(myTasks.map(t=>t.section||'')));
   const sections=Array.from(new Set([...dbSecs,...extras]));
   const bySec=s=>myTasks.filter(t=>(t.section||'')===s);
+
+  // ── Section (category) helpers ────────────────────────────────────────────
+  const proj=allProjs.find(p=>p.id===pid)||{};
+  const secDeps=proj.section_deps||{};  // { 'secName': ['depSec1', 'depSec2'] }
+
+  // Is a section fully done? (all its tasks Done)
+  const isSecDone=sec=>{
+    const ts=bySec(sec);
+    return ts.length>0&&ts.every(t=>t.status==='Done');
+  };
+
+  // Are a section's dependencies all done?
+  const isSecDepsMet=sec=>{
+    const deps=secDeps[sec]||[];
+    if(deps.length===0)return false; // no deps = no readiness indicator needed
+    return deps.every(d=>isSecDone(d));
+  };
+
+  // Toggle all tasks in a section to Done or back to To Do
+  const toggleSecDone=sec=>{
+    const ts=bySec(sec);
+    const allDone=ts.every(t=>t.status==='Done');
+    ts.forEach(t=>db.updTask(t.id,{status:allDone?'To Do':'Done'}));
+  };
+
+  // Save section deps
+  const saveSecDep=(sec,deps)=>{
+    const newDeps={...secDeps,[sec]:deps};
+    db.updProject(pid,{section_deps:newDeps});
+  };
 
   const blocked=t=>(t.depends_on||[]).some(id=>{const d=allTasks.find(x=>x.id===id);return d&&d.status!=='Done';});
   const cycle=t=>{
@@ -1228,14 +1261,57 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
       if(sec!==''&&st.length===0&&!extras.includes(sec))return null;
       const exp=coll['s_'+sec]!==false;
       return<div key={sec||'__'} style={{marginBottom:14}}>
-        {sec&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
-          <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
-          {editSec===sec
-            ?<input autoFocus defaultValue={sec} onBlur={e=>renameSec(sec,e.target.value)} onKeyDown={e=>{if(e.key==='Enter')renameSec(sec,e.target.value);if(e.key==='Escape')setES(null);}} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',border:'1px solid #4a7c5e',borderRadius:4,padding:'1px 6px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
-            :<><span style={{fontSize:11,fontWeight:700,color:'#6B6B6B',textTransform:'uppercase',letterSpacing:'.06em',cursor:'text'}} onDoubleClick={()=>setES(sec)} title="לחץ פעמיים לשינוי שם">{sec}</span>
-              <span style={{fontSize:11,color:'#B0B0B0'}}>{st.length}</span>
-              <button onClick={()=>setES(sec)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:11,padding:2}} title="שנה שם" onMouseOver={e=>e.target.style.color='#8C8C8C'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>✏️</button></>}
-        </div>}
+        {sec&&(()=>{
+          const secDone=isSecDone(sec);
+          const depsMet=isSecDepsMet(sec);
+          const hasDeps=(secDeps[sec]||[]).length>0;
+          const otherSecs=sections.filter(s=>s&&s!==sec);
+          return<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+            {/* Collapse arrow */}
+            <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
+
+            {/* Section completion circle */}
+            <div onClick={()=>toggleSecDone(sec)} title={secDone?'סמן כלא הושלם':'סמן כל המשימות כהושלם'}
+              style={{width:18,height:18,borderRadius:'50%',border:'2px solid '+(secDone?'#3D7A5A':'#D1CBC1'),
+                background:secDone?'#3D7A5A':'white',flexShrink:0,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s'}}>
+              {secDone&&<span style={{color:'white',fontSize:9,fontWeight:700}}>✓</span>}
+            </div>
+
+            {/* Section name */}
+            {editSec===sec
+              ?<input autoFocus defaultValue={sec} onBlur={e=>renameSec(sec,e.target.value)} onKeyDown={e=>{if(e.key==='Enter')renameSec(sec,e.target.value);if(e.key==='Escape')setES(null);}} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',border:'1px solid #4a7c5e',borderRadius:4,padding:'1px 6px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
+              :<><span style={{fontSize:11,fontWeight:700,color:secDone?'#3D7A5A':'#6B6B6B',textTransform:'uppercase',letterSpacing:'.06em',cursor:'text',textDecoration:secDone?'line-through':''}} onDoubleClick={()=>setES(sec)} title="לחץ פעמיים לשינוי שם">{sec}</span>
+                <span style={{fontSize:11,color:'#B0B0B0'}}>{st.filter(t=>t.status==='Done').length}/{st.length}</span>
+                <button onClick={()=>setES(sec)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:11,padding:2}} title="שנה שם" onMouseOver={e=>e.target.style.color='#8C8C8C'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>✏️</button></>}
+
+            {/* Readiness badge */}
+            {depsMet&&!secDone&&<span style={{display:'inline-flex',alignItems:'center',gap:3,background:'#ECFDF5',color:'#065F46',border:'1.5px solid #34D399',borderRadius:999,padding:'2px 8px',fontSize:10,fontWeight:800,flexShrink:0,animation:'readyPulse 1.8s ease-in-out infinite'}}>⚡ מוכן לביצוע</span>}
+
+            {/* Dep indicator */}
+            {hasDeps&&!depsMet&&<span style={{fontSize:11,color:'#C0C0C0'}} title={'תלוי ב: '+(secDeps[sec]||[]).join(', ')}>🔗</span>}
+
+            {/* Manage deps button */}
+            {otherSecs.length>0&&<div style={{position:'relative',marginRight:'auto'}}>
+              <button onClick={()=>setShowSecDep(showSecDep===sec?null:sec)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:11,padding:2}} title="הגדר תלויות" onMouseOver={e=>e.target.style.color='#8C8C8C'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>⛓</button>
+              {showSecDep===sec&&<div style={{position:'absolute',top:22,right:0,background:'white',border:'1px solid #E8E6E1',borderRadius:8,padding:10,zIndex:100,minWidth:180,boxShadow:'0 4px 16px rgba(0,0,0,.1)'}}>
+                <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:'#6B6B6B'}}>תלויות של "{sec}":</div>
+                {otherSecs.map(s=>{
+                  const checked=(secDeps[sec]||[]).includes(s);
+                  return<label key={s} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0',cursor:'pointer',fontSize:12}}>
+                    <input type="checkbox" checked={checked} onChange={()=>{
+                      const cur=secDeps[sec]||[];
+                      const next=checked?cur.filter(x=>x!==s):[...cur,s];
+                      saveSecDep(sec,next);
+                    }}/>
+                    {s}
+                  </label>;
+                })}
+                <button onClick={()=>setShowSecDep(null)} style={{marginTop:6,fontSize:11,color:'#8C8C8C',background:'none',border:'none',cursor:'pointer'}}>סגור</button>
+              </div>}
+            </div>}
+          </div>;
+        })()}
         {exp&&<div style={{background:'white',border:'1px solid #F0EDE8',borderRadius:10,overflow:'hidden'}}>
           {st.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
           {st.map(t=><TaskRow key={t.id} task={t} depth={0}/>)}
@@ -1621,6 +1697,17 @@ function SettingsTab({project,db,onDel,currentUser}){
 function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const [tab,setTab]=useState('tasks');
   const myT=db.tasks.filter(t=>t.project_id===project.id);
+  // Filter assignable partners per project based on role + assigned_projects
+  const filteredPartners=db.partners.filter(p=>{
+    if(!p.email) return true; // no email = always show (legacy partner)
+    const om=db.officeMembers.find(m=>m.email===p.email);
+    if(!om) return true; // not in office_members = always show
+    if(om.role==='admin'||om.role==='manager') return true;
+    if(om.role==='drafter'){
+      return (om.assigned_projects||[]).includes(project.id);
+    }
+    return false; // client role = not assignable
+  });
   const ms=project.milestones||[];
   const prog=ms.length?Math.round(ms.filter(m=>m.completed).length/ms.length*100):0;
   const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
@@ -1652,8 +1739,8 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
       {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:'9px 14px',border:'none',borderBottom:tab===t.id?'2px solid #1A1A1A':'2px solid transparent',background:'none',cursor:'pointer',fontSize:13,fontWeight:tab===t.id?600:400,color:tab===t.id?'#1A1A1A':'#8C8C8C',marginBottom:-2,whiteSpace:'nowrap',fontFamily:'Heebo,sans-serif',display:'flex',alignItems:'center',gap:5}}>{t.e} {t.l}</button>)}
     </div>
     <div className="fade">
-      {tab==='tasks'&&<TasksTab tasks={myT} pid={project.id} allTasks={db.tasks} allProjs={db.projects} partners={db.partners} db={db}/>}
-      {tab==='flow'&&<FlowTab tasks={myT} projectId={project.id} allTasks={db.tasks} allProjs={db.projects} partners={db.partners} db={db}/>}
+      {tab==='tasks'&&<TasksTab tasks={myT} pid={project.id} allTasks={db.tasks} allProjs={db.projects} partners={filteredPartners} db={db}/>}
+      {tab==='flow'&&<FlowTab tasks={myT} projectId={project.id} allTasks={db.tasks} allProjs={db.projects} partners={filteredPartners} db={db}/>}
       {tab==='ms'&&<MilestonesTab project={project} db={db}/>}
       {tab==='docs'&&<DocsTab docs={db.docs.filter(d=>d.project_id===project.id)} pid={project.id} db={db}/>}
       {tab==='reqs'&&<ReqsTab reqs={db.reqs.filter(r=>r.project_id===project.id)} pid={project.id} db={db}/>}
@@ -1831,7 +1918,7 @@ function AllTasksPage({db,nav}){
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>

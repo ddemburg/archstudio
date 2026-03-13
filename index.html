@@ -485,7 +485,35 @@ function useApp(){
     addTask:t=>setT(ts=>[...ts,{...t,id:uid(),parent_task_id:t.parent_task_id||null,depends_on:t.depends_on||[],notes:t.notes||[],description:t.description||''}]),
     updTask:(id,ch)=>setT(ts=>{
       let updated=ts.map(t=>t.id===id?{...t,...ch}:t);
-      // Check readiness: if a task's deps + subtasks are all Done → mark as ready, auto-promote to High
+
+      // ── Cascade DOWN: when marking a task Done/To Do, apply same to all descendants ──
+      if(ch.status){
+        const cascade=(parentId,status)=>{
+          updated.filter(t=>t.parent_task_id===parentId).forEach(child=>{
+            updated=updated.map(t=>t.id===child.id?{...t,status}:t);
+            cascade(child.id,status);
+          });
+        };
+        cascade(id,ch.status);
+      }
+
+      // ── Cascade UP: recalculate parent status based on children ──
+      if(ch.status){
+        const recalcAncestors=(childId)=>{
+          const child=updated.find(t=>t.id===childId);
+          if(!child?.parent_task_id) return;
+          const pid=child.parent_task_id;
+          const siblings=updated.filter(t=>t.parent_task_id===pid);
+          const allDone=siblings.every(t=>t.status==='Done');
+          const allToDo=siblings.every(t=>t.status==='To Do');
+          const parentStatus=allDone?'Done':allToDo?'To Do':'In Progress';
+          updated=updated.map(t=>t.id===pid?{...t,status:parentStatus}:t);
+          recalcAncestors(pid);
+        };
+        recalcAncestors(id);
+      }
+
+      // ── Check readiness: deps + subtasks all Done → auto-promote to High ──
       updated=updated.map(t=>{
         if(t.status==='To Do'||t.status==='Blocked'){
           const deps=t.depends_on||[];
@@ -499,25 +527,7 @@ function useApp(){
         }
         return t;
       });
-      // Walk up the tree and auto-promote ancestors
-      if(ch.status){
-        let curId=id;
-        while(true){
-          const cur=updated.find(t=>t.id===curId);
-          if(!cur?.parent_task_id)break;
-          const pid=cur.parent_task_id;
-          const siblings=updated.filter(t=>t.parent_task_id===pid);
-          const allDone=siblings.every(t=>t.status==='Done');
-          const anyActive=siblings.some(t=>t.status==='In Progress'||t.status==='Done');
-          updated=updated.map(t=>{
-            if(t.id!==pid)return t;
-            if(allDone)return{...t,status:'In Progress',_subtasks_done:true};
-            if(anyActive&&t.status==='To Do')return{...t,status:'In Progress',_subtasks_done:false};
-            return t;
-          });
-          curId=pid;
-        }
-      }
+
       return updated;
     }),
     batchUpdTasks:(ids,ch)=>setT(ts=>ts.map(t=>ids.includes(t.id)?{...t,...ch}:t)),
@@ -1111,26 +1121,16 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     return deps.every(d=>isSecDone(d));
   };
 
-  // Toggle all tasks in a section to Done or back to To Do (batch — no auto-promote)
+  // Toggle all tasks in a section to Done or back to To Do
+  // updTask now cascades down to subtasks and recalcs parents automatically
   const toggleSecDone=sec=>{
     const ts=bySec(sec);
     if(ts.length===0) return;
-    const allDone=ts.every(t=>t.status==='Done');
+    // Use isSecDone which checks all descendants
+    const allDone=isSecDone(sec);
     const newStatus=allDone?'To Do':'Done';
-    // Collect ALL descendant IDs (BFS)
-    const collectBFS=(rootIds)=>{
-      const result=[];
-      const queue=[...rootIds];
-      while(queue.length){
-        const id=queue.shift();
-        result.push(id);
-        allTasks.filter(t=>t.parent_task_id===id).forEach(ch=>queue.push(ch.id));
-      }
-      return result;
-    };
-    const allIds=collectBFS(ts.map(t=>t.id));
-    // Single batch update — bypasses auto-promote logic entirely
-    db.batchUpdTasks(allIds,{status:newStatus});
+    // Only need to call updTask on top-level tasks — cascade handles the rest
+    ts.forEach(t=>db.updTask(t.id,{status:newStatus}));
   };
 
   // Save section deps

@@ -410,7 +410,26 @@ function useApp(){
         setU(SP); setCRM(SCRM); setLeads(SLEADS);
       }
       setDriveReady(true);
-      apiGetMembers().then(m=>setOfficeMembers(m||[])).catch(()=>{});
+      apiGetMembers().then(m=>{
+      const members=m||[];
+      setOfficeMembers(members);
+      // Sync partners from office members — partners is now derived from office_members
+      setU(existingPartners=>{
+        return members.map((om,i)=>{
+          // Try to find existing partner by email to preserve ID and color
+          const existing=existingPartners.find(p=>p.email===om.email);
+          return{
+            id: existing?.id||om.id||uid(),
+            name: om.name||om.email,
+            role: om.role==='admin'?'שותף בכיר':om.role==='manager'?'מנהל':om.role==='drafter'?'שרטט':'לקוח',
+            color: existing?.color||COLORS[i%COLORS.length],
+            email: om.email,
+            picture: om.picture||'',
+            phone: existing?.phone||'',
+          };
+        });
+      });
+    }).catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
   };
@@ -1976,47 +1995,48 @@ function AllTasksPage({db,nav}){
 
 // ─── Partners Page ────────────────────────────────────────────────────────────
 function PartnersPage({db,nav}){
-  const [sf,setSF]=useState(false);const [form,setF]=useState({name:'',role:'',email:''});const [eid,setEID]=useState(null);
-  const u=(k,v)=>setF(f=>({...f,[k]:v}));
-  const save=()=>{if(!form.name.trim())return;if(eid)db.updPartner(eid,form);else db.addPartner(form);setF({name:'',role:'',email:''});setEID(null);setSF(false);};
-  const edit=p=>{setF({name:p.name,role:p.role||'',email:p.email||''});setEID(p.id);setSF(true);};
   return<div>
-    <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20}}>
-      <div><h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>שותפים וצוות</h1><p style={{fontSize:14,color:'#8C8C8C'}}>ניהול אנשי הצוות</p></div>
-      <Btn onClick={()=>{setSF(true);setEID(null);setF({name:'',role:'',email:''});}}>+ הוסף חבר צוות</Btn>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+      <h1 style={{fontSize:26,fontWeight:600}}>צוות המשרד</h1>
+      <Btn v="outline" onClick={()=>nav('appsettings')}>⚙ ניהול משתמשים</Btn>
     </div>
-    {sf&&<div className="fade" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:18,marginBottom:18}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:12}}>{eid?'עריכה':'חבר צוות חדש'}</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
-        <I label="שם מלא" value={form.name} onChange={e=>u('name',e.target.value)} placeholder="שם ומשפחה"/>
-        <I label="תפקיד" value={form.role} onChange={e=>u('role',e.target.value)} placeholder="אדריכל, מתמחה..."/>
-        <I label="אימייל" value={form.email} onChange={e=>u('email',e.target.value)} placeholder="email@example.com"/>
-      </div>
-      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn v="ghost" sz="sm" onClick={()=>{setSF(false);setEID(null);}}>ביטול</Btn><Btn sz="sm" onClick={save} disabled={!form.name.trim()}>{eid?'שמור':'הוסף'}</Btn></div>
-    </div>}
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))',gap:12}}>
+    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:22}}>רשימת חברי הצוות מנוהלת דרך הגדרות המשרד</p>
+
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>
       {db.partners.map(p=>{
-        const mt=db.tasks.filter(t=>t.assignee_id===p.id),ip=mt.filter(t=>t.status==='In Progress').length,dn=mt.filter(t=>t.status==='Done').length;
-        return<div key={p.id} className="hc" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:16,transition:'all .2s'}}>
+        const myT=db.tasks.filter(t=>t.assignee_id===p.id&&t.status!=='Done');
+        const doneT=db.tasks.filter(t=>t.assignee_id===p.id&&t.status==='Done');
+        const ROLE_COLORS={'admin':'#1D4ED8','manager':'#065F46','drafter':'#B45309','client':'#6B7280'};
+        const om=db.officeMembers.find(m=>m.email===p.email);
+        const roleHe={'admin':'מנהל ראשי','manager':'מנהל משרד','drafter':'שרטט','client':'לקוח'};
+        return<div key={p.id} style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:16}}>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-            <div style={{width:44,height:44,borderRadius:'50%',background:p.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'white',flexShrink:0}}>{p.name[0]}</div>
-            <div style={{flex:1}}><div style={{fontSize:15,fontWeight:600}}>{p.name}</div><div style={{fontSize:12,color:'#8C8C8C'}}>{p.role}</div></div>
+            {p.picture
+              ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
+              :<Av name={p.name} size={44} color={p.color}/>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
+              <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>
+              <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:999,
+                background:'#F0F0F0',color:ROLE_COLORS[om?.role]||'#6B7280'}}>
+                {roleHe[om?.role]||p.role}
+              </span>
+            </div>
           </div>
-          {p.email&&<div style={{fontSize:12,color:'#6B6B6B',marginBottom:8}}>✉️ {p.email}</div>}
-          <div style={{display:'flex',gap:8}}>
-            {[{l:'בתהליך',v:ip,bg:'#FFFBEB',col:'#B45309'},{l:'הושלם',v:dn,bg:'#ECFDF5',col:'#059669'},{l:'סה"כ',v:mt.length,bg:'#F3F4F6',col:'#6B7280'}].map(s=><div key={s.l} style={{flex:1,background:s.bg,borderRadius:7,padding:'6px 8px',textAlign:'center'}}><div style={{fontSize:14,fontWeight:700,color:s.col}}>{s.v}</div><div style={{fontSize:10,color:'#8C8C8C'}}>{s.l}</div></div>)}
-          </div>
-          <div style={{display:'flex',gap:6,justifyContent:'flex-end',marginTop:10}}>
-            <Btn v="ghost" sz="sm" onClick={()=>edit(p)}>✏️</Btn>
-            {db.partners.length>1&&<Btn v="ghost" sz="sm" sx={{color:'#EF4444'}} onClick={()=>window.confirm('למחוק?')&&db.delPartner(p.id)}>🗑</Btn>}
+          <div style={{display:'flex',gap:16,fontSize:12,color:'#6B6B6B',borderTop:'1px solid #F5F5F3',paddingTop:8}}>
+            <span>🔄 {myT.length} משימות פתוחות</span>
+            <span>✓ {doneT.length} הושלמו</span>
           </div>
         </div>;
       })}
     </div>
+    {db.partners.length===0&&<div style={{textAlign:'center',padding:60,color:'#B0B0B0',fontSize:14}}>
+      אין חברי צוות עדיין.<br/>
+      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav('appsettings')}>הוסף דרך הגדרות</Btn>
+    </div>}
   </div>;
 }
 
-// ─── Committees Page ──────────────────────────────────────────────────────────
 function CommitteesPage({db,nav}){
   const [sf,setSF]=useState(false);const [form,setF]=useState({name:'',type:'מקומית',region:''});const [eid,setEID]=useState(null);
   const u=(k,v)=>setF(f=>({...f,[k]:v}));

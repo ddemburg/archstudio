@@ -640,7 +640,19 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
   const u=(k,v)=>{onUpdate(task.id,{[k]:v});showSaved();};
   const isBlocked=(task.depends_on||[]).some(id=>{const d=allTasks.find(x=>x.id===id);return d&&d.status!=='Done';});
   const depTasks=allTasks.filter(t=>(task.depends_on||[]).includes(t.id));
-  const candidates=allTasks.filter(t=>t.id!==task.id&&!(task.depends_on||[]).includes(t.id)&&(!depSearch||t.title.includes(depSearch)||(allProjects.find(p=>p.id===t.project_id)||{}).name?.includes(depSearch)));
+  const candidates=allTasks
+    .filter(t=>
+      t.id!==task.id &&
+      !t.parent_task_id &&  // top-level tasks only for deps
+      !(task.depends_on||[]).includes(t.id) &&
+      (!depSearch || t.title.includes(depSearch) || (allProjects.find(p=>p.id===t.project_id)||{}).name?.includes(depSearch))
+    )
+    .sort((a,b)=>{
+      // Same project first
+      const aS = a.project_id===task.project_id ? 0 : 1;
+      const bS = b.project_id===task.project_id ? 0 : 1;
+      return aS-bS;
+    });
   const addDep=id=>{u('depends_on',[...(task.depends_on||[]),id]);setDepSearch('');};
   const remDep=id=>u('depends_on',(task.depends_on||[]).filter(d=>d!==id));
   const addNote=()=>{if(!noteText.trim())return;u('notes',[...(task.notes||[]),{id:uid(),text:noteText.trim(),date:new Date().toISOString().split('T')[0],author_id:'u1'}]);setNoteText('');};
@@ -708,19 +720,25 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
           <div style={{position:'relative'}}>
             <Btn v="outline" sz="sm" sx={{borderStyle:'dashed'}} onClick={()=>setShowDep(!showDep)}>+ הוסף תלות</Btn>
             {showDep&&<div style={{position:'absolute',top:36,right:0,zIndex:10,background:'white',border:'1px solid #E8E6E1',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,.12)',width:340,padding:10}}>
-              <input value={depSearch} onChange={e=>setDepSearch(e.target.value)} placeholder="חפש משימה מכל פרויקט..." autoFocus
+              <input value={depSearch} onChange={e=>setDepSearch(e.target.value)} placeholder="חפש משימה..." autoFocus
                 style={{width:'100%',height:34,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,marginBottom:8,fontFamily:'Heebo,sans-serif'}}/>
               <div style={{maxHeight:200,overflowY:'auto'}}>
-                {candidates.slice(0,20).map(t=>{
+                {candidates.length===0&&<div style={{fontSize:12,color:'#B0B0B0',padding:'8px',textAlign:'center'}}>לא נמצאו משימות</div>}
+              {candidates.map((t,i)=>{
                   const tp=allProjects.find(p=>p.id===t.project_id);
-                  return<div key={t.id} onClick={()=>{addDep(t.id);setShowDep(false);}} className="hr"
-                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 8px',borderRadius:6,cursor:'pointer'}}>
+                  const isSameProj=t.project_id===task.project_id;
+                  const prevIsSameProj=i>0&&candidates[i-1].project_id===task.project_id;
+                  const showSep=i>0&&!isSameProj&&prevIsSameProj;
+                  return<React.Fragment key={t.id}>
+                    {showSep&&<div style={{borderTop:'1px solid #F0EDE8',margin:'4px 0'}}/>}
+                    <div onClick={()=>{addDep(t.id);setShowDep(false);}} className="hr"
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 8px',borderRadius:6,cursor:'pointer',background:isSameProj?'#F9FBF9':'white'}}>
                     <span style={{flex:1,fontSize:13}}>{t.title}</span>
-                    <span style={{fontSize:11,color:'#8C8C8C',flexShrink:0}}>{tp?.name}</span>
+                    <span style={{fontSize:11,color:isSameProj?'#4a7c5e':'#8C8C8C',flexShrink:0}}>{isSameProj?'פרויקט זה':tp?.name}</span>
                     <span style={{fontSize:11,padding:'1px 6px',borderRadius:999,background:t.status==='Done'?'#ECFDF5':'#F3F4F6',color:t.status==='Done'?'#059669':'#6B7280'}}>{t.status==='Done'?'הושלם':'פתוח'}</span>
-                  </div>;
-                })}
-                {candidates.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:8,textAlign:'center'}}>אין תוצאות</p>}
+                  </div>
+                  </React.Fragment>;
+                })}ontSize:12,color:'#B0B0B0',padding:8,textAlign:'center'}}>אין תוצאות</p>}
               </div>
             </div>}
           </div>
@@ -1662,7 +1680,10 @@ function ApprovalsTab({approvs,pid,db}){
 
 // ─── Settings + Template ──────────────────────────────────────────────────────
 function SettingsTab({project,db,onDel,currentUser}){
-  const [form,setF]=useState({name:project.name||'',address:project.address||'',status:project.status||'Planning',client_name:project.client_name||'',client_email:project.client_email||'',client_phone:project.client_phone||'',budget:project.budget||'',notes:project.notes||'',start_date:project.start_date||'',target_completion:project.target_completion||'',planning_committee_id:project.planning_committee_id||'',zone:project.zone||'',manager_id:project.manager_id||''});
+  const [form,setF]=useState({name:project.name||'',address:project.address||'',status:project.status||'Planning',
+    client_name:project.client_name||'',client_email:project.client_email||'',client_phone:project.client_phone||'',
+    clients:project.clients||[],
+    budget:project.budget||'',notes:project.notes||'',start_date:project.start_date||'',target_completion:project.target_completion||'',planning_committee_id:project.planning_committee_id||'',zone:project.zone||'',manager_id:project.manager_id||''});
   const [saved,setSaved]=useState(false);
   const [showTpl,setShowTpl]=useState(false);
   const [tplName,setTplName]=useState('');
@@ -1701,11 +1722,23 @@ function SettingsTab({project,db,onDel,currentUser}){
       <SE label="אזור" value={form.zone} onChange={e=>u('zone',e.target.value)}><option value="">— בחר —</option>{['אזור מרכז','אזור תל אביב','אזור ירושלים','אזור חיפה','אזור צפון','אזור דרום','אזור שרון'].map(z=><option key={z}>{z}</option>)}</SE>
     </div>
     <div style={{borderTop:'1px solid #F5F5F3',paddingTop:10}}>
-      <div style={{fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:10}}>פרטי לקוח</div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase'}}>לקוחות</div>
+        <button onClick={()=>u('clients',[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]),{name:'',email:'',phone:'',id_number:''}])} style={{fontSize:11,background:'none',border:'1px solid #D0CEC9',borderRadius:6,padding:'2px 8px',cursor:'pointer',color:'#6B6B6B'}}>+ הוסף לקוח</button>
+      </div>
+      {(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}]).map((cl,ci)=>
+        <div key={ci} style={{background:'#F9F8F7',borderRadius:8,padding:10,marginBottom:8,position:'relative'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <I label="שם לקוח" value={cl.name} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],name:e.target.value};u('clients',cls);}}/>
+            <I label="תעודת זהות" value={cl.id_number||''} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],id_number:e.target.value};u('clients',cls);}}/>
+            <I label="אימייל" value={cl.email} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],email:e.target.value};u('clients',cls);}}/>
+            <I label="טלפון" value={cl.phone} onChange={e=>{const cls=[...(form.clients||[{name:form.client_name||'',email:form.client_email||'',phone:form.client_phone||'',id_number:''}])];cls[ci]={...cls[ci],phone:e.target.value};u('clients',cls);}}/>
+          </div>
+          {(form.clients||[]).length>1&&<button onClick={()=>{const cls=[...(form.clients||[])];cls.splice(ci,1);u('clients',cls);}} style={{position:'absolute',top:8,left:8,background:'none',border:'none',cursor:'pointer',fontSize:12,color:'#C0C0C0'}} title="הסר לקוח">✕</button>}
+        </div>
+      )}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-        <I label="שם" value={form.client_name} onChange={e=>u('client_name',e.target.value)}/>
-        <I label="אימייל" value={form.client_email} onChange={e=>u('client_email',e.target.value)}/>
-        <I label="טלפון" value={form.client_phone} onChange={e=>u('client_phone',e.target.value)}/>
+        {/* keep budget/dates below */}
         <I label="תקציב ₪" type="number" value={form.budget} onChange={e=>u('budget',e.target.value)}/>
         <I label="התחלה" type="date" value={form.start_date} onChange={e=>u('start_date',e.target.value)}/>
         <I label="יעד סיום" type="date" value={form.target_completion} onChange={e=>u('target_completion',e.target.value)}/>

@@ -1699,8 +1699,8 @@ function SettingsTab({project,db,onDel,currentUser}){
     const comm=db.committees.find(x=>x.id===form.planning_committee_id);
     db.updProject(project.id,{...form,budget:form.budget?Number(form.budget):undefined,planning_committee:comm?comm.name:''});
     // Sync clients → CRM: add if email not already in CRM
-    const clients=form.clients||[];
-    clients.forEach(cl=>{
+    const crmSyncClients=form.clients||[];
+    crmSyncClients.forEach(cl=>{
       if(!cl.name.trim()) return;
       const existing=db.crm.find(x=>x.email&&x.email===cl.email);
       if(existing){

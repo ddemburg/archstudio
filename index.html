@@ -550,6 +550,7 @@ function useApp(){
       return updated;
     }),
     batchUpdTasks:(ids,ch)=>setT(ts=>ts.map(t=>ids.includes(t.id)?{...t,...ch}:t)),
+    addLog:(pid,entry)=>setP(ps=>ps.map(p=>p.id===pid?{...p,project_log:[...(p.project_log||[]),{...entry,id:uid(),ts:new Date().toISOString()}]}:p)),
     delTask:id=>setT(ts=>{
       const toDelete=new Set([id]);
       let changed=true;
@@ -1109,6 +1110,33 @@ function PartnerChip({partner,style={}}){
 
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
+  // Logged wrappers — auto-record to project log
+  const loggedEmail=sessionStorage.getItem('arch_email')||'';
+  const logUser=db.partners.find(p=>p.email===loggedEmail)?.name||loggedEmail||'—';
+  const logUpdTask=(id,ch)=>{
+    const t=allTasks.find(x=>x.id===id);
+    if(t&&ch.status&&ch.status!==t.status){
+      db.addLog(pid,{user:logUser,action:'status',taskTitle:t.title,from:t.status,to:ch.status});
+      // Add timestamp to task for In Progress / Done
+      if(ch.status==='In Progress') ch={...ch,_ts_started:new Date().toISOString(),_ts_started_by:logUser};
+      if(ch.status==='Done')        ch={...ch,_ts_done:new Date().toISOString(),_ts_done_by:logUser};
+      if(ch.status==='To Do')       ch={...ch,_ts_started:null,_ts_done:null};
+    }
+    if(t&&ch.title&&ch.title!==t.title){
+      db.addLog(pid,{user:logUser,action:'rename',taskTitle:ch.title,from:t.title,to:ch.title});
+    }
+    db.updTask(id,ch);
+  };
+  const logAddTask=(task)=>{
+    db.addTask(task);
+    db.addLog(pid,{user:logUser,action:'add',taskTitle:task.title});
+  };
+  const logDelTask=(id)=>{
+    const t=allTasks.find(x=>x.id===id);
+    if(t) db.addLog(pid,{user:logUser,action:'delete',taskTitle:t.title});
+    logDelTask(id);
+  };
+
   const [newTitle,setNT]=useState('');
   const [addingIn,setAI]=useState(null);     // section key
   const [addSubIn,setASI]=useState(null);    // parent task id
@@ -1167,7 +1195,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     const allDone=isSecDone(sec);
     const newStatus=allDone?'To Do':'Done';
     // Only need to call updTask on top-level tasks — cascade handles the rest
-    ts.forEach(t=>db.updTask(t.id,{status:newStatus}));
+    ts.forEach(t=>logUpdTask(t.id,{status:newStatus}));
   };
 
   // Save section deps
@@ -1182,12 +1210,12 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     const nx={'To Do':'In Progress','In Progress':'Done','Done':'To Do'};
     const ns=nx[t.status];
     if(ns==='Done'&&blocked(t))return;
-    db.updTask(t.id,{status:ns});
+    logUpdTask(t.id,{status:ns});
   };
 
   const [newSec,setNewSec]=useState('');
-  const addTask=sec=>{if(!newTitle.trim())return;const finalSec=sec||newSec||undefined;db.addTask({project_id:pid,title:newTitle.trim(),section:finalSec,status:'To Do',priority:'Medium',parent_task_id:null});setNT('');setAI(null);};
-  const addSubtask=parentId=>{if(!newSubTitle.trim())return;const p=allTasks.find(t=>t.id===parentId);db.addTask({project_id:pid,title:newSubTitle.trim(),section:p?.section||undefined,status:'To Do',priority:p?.priority||'Medium',parent_task_id:parentId,depends_on:[],notes:[],description:''});setNST('');setASI(null);};
+  const addTask=sec=>{if(!newTitle.trim())return;const finalSec=sec||newSec||undefined;logAddTask({project_id:pid,title:newTitle.trim(),section:finalSec,status:'To Do',priority:'Medium',parent_task_id:null});setNT('');setAI(null);};
+  const addSubtask=parentId=>{if(!newSubTitle.trim())return;const p=allTasks.find(t=>t.id===parentId);logAddTask({project_id:pid,title:newSubTitle.trim(),section:p?.section||undefined,status:'To Do',priority:p?.priority||'Medium',parent_task_id:parentId,depends_on:[],notes:[],description:''});setNST('');setASI(null);};
   const addSec=()=>{if(!secInput.trim())return;setExt(e=>[...e,secInput.trim()]);setSI('');};
   const renameSec=(o,n)=>{if(n.trim()&&n.trim()!==o){db.renameSection(pid,o,n.trim());setExt(e=>e.map(s=>s===o?n.trim():s));}setES(null);};
 
@@ -1235,7 +1263,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
         {/* Title — double-click to rename */}
         {editingId===task.id
           ?<input autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)}
-              onBlur={()=>{if(editTitle.trim()&&editTitle.trim()!==task.title)db.updTask(task.id,{title:editTitle.trim()});setEditingId(null);}}
+              onBlur={()=>{if(editTitle.trim()&&editTitle.trim()!==task.title)logUpdTask(task.id,{title:editTitle.trim()});setEditingId(null);}}
               onKeyDown={e=>{if(e.key==='Enter')e.target.blur();if(e.key==='Escape')setEditingId(null);}}
               onClick={e=>e.stopPropagation()}
               style={{flex:1,fontSize:depth===0?13:12,border:'1px solid #4a7c5e',borderRadius:5,padding:'2px 7px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
@@ -1243,13 +1271,26 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
               style={{flex:1,fontSize:depth===0?13:12,color:task.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:task.status==='Done'?'line-through':'',fontWeight:depth===0?500:400,cursor:'text'}}
               title="לחץ פעמיים לשינוי שם">{task.title}</span>}
 
+        {/* Status timestamps */}
+        {(task._ts_done||task._ts_started)&&(()=>{
+          const ts=task.status==='Done'?task._ts_done:task._ts_started;
+          const by=task.status==='Done'?task._ts_done_by:task._ts_started_by;
+          if(!ts) return null;
+          const d=new Date(ts);
+          const dateStr=d.toLocaleDateString('he-IL',{day:'numeric',month:'short'});
+          const timeStr=d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+          const color=task.status==='Done'?'#059669':'#D97706';
+          return<span style={{fontSize:9,color:color,background:task.status==='Done'?'#ECFDF5':'#FFFBEB',padding:'1px 5px',borderRadius:4,flexShrink:0,whiteSpace:'nowrap'}}>
+            {task.status==='Done'?'✓':'▶'} {dateStr} {timeStr}{by?' · '+by:''}
+          </span>;
+        })()}
+
         {/* Subtask progress badge */}
         {hasChildren&&<span style={{fontSize:10,color:allChildDone?'#3D7A5A':anyChildDone?'#F59E0B':'#9C9C9C',background:allChildDone?'#ECFDF5':anyChildDone?'#FFFBEB':'#F3F4F6',padding:'1px 6px',borderRadius:4,fontWeight:600,flexShrink:0}}>
           {childDone}/{children.length}
         </span>}
 
-        {/* Auto-promoted badge */}
-        {task._subtasks_done&&<span style={{fontSize:9,fontWeight:700,color:'#065F46',background:'#D1FAE5',padding:'1px 5px',borderRadius:999,flexShrink:0}}>✓ הכל הושלם</span>}
+
 
         {/* Notes count */}
         {(task.notes||[]).length>0&&<span style={{fontSize:11,color:'#B0B0B0'}}>💬{task.notes.length}</span>}
@@ -1276,7 +1317,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           onMouseOver={e=>e.target.style.color='#3D7A5A'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>⊕</button>
 
         {/* Delete */}
-        <button onClick={e=>{e.stopPropagation();db.delTask(task.id);}}
+        <button onClick={e=>{e.stopPropagation();logDelTask(task.id);}}
           style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:13,padding:2,flexShrink:0}}
           onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
       </div>
@@ -1679,7 +1720,7 @@ function ApprovalsTab({approvs,pid,db}){
 }
 
 // ─── Settings + Template ──────────────────────────────────────────────────────
-function SettingsTab({project,db,onDel,currentUser}){
+function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
   const [form,setF]=useState({name:project.name||'',address:project.address||'',status:project.status||'Planning',
     client_name:project.client_name||'',client_email:project.client_email||'',client_phone:project.client_phone||'',
     client_ids:project.client_ids||[],
@@ -1786,7 +1827,10 @@ function SettingsTab({project,db,onDel,currentUser}){
     </div>
     <TA label="הערות פנימיות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={3}/>
     <div style={{display:'flex',justifyContent:'space-between',paddingTop:10,borderTop:'1px solid #F5F5F3',flexWrap:'wrap',gap:8}}>
-      <Btn v="danger" onClick={()=>window.confirm('למחוק את הפרויקט?')&&onDel()}>🗑 מחק פרויקט</Btn>
+      <div style={{display:'flex',gap:8}}>
+        <Btn v="danger" onClick={()=>window.confirm('למחוק את הפרויקט?')&&onDel()}>🗑 מחק פרויקט</Btn>
+        <Btn v="outline" onClick={onOpenLog}>📋 לוג פעילות ({(project.project_log||[]).length})</Btn>
+      </div>
       <div style={{display:'flex',gap:8}}>
         <Btn v="outline" onClick={()=>setShowTpl(true)}>📋 שמור כתבנית</Btn>
         <Btn onClick={save}>{saved?'✓ נשמר!':'💾 שמור'}</Btn>
@@ -1810,6 +1854,42 @@ function SettingsTab({project,db,onDel,currentUser}){
 }
 
 // ─── Project Detail ───────────────────────────────────────────────────────────
+// ─── Log Tab ──────────────────────────────────────────────────────────────────
+function LogTab({project}){
+  const log=[...(project.project_log||[])].reverse(); // newest first
+  const ACTION_CFG={
+    status:  {e:'🔄', label:(e)=>`${e.taskTitle}: ${STATUS_MAP[e.from]||e.from} ← ${STATUS_MAP[e.to]||e.to}`},
+    add:     {e:'➕', label:(e)=>`נוספה: "${e.taskTitle}"`},
+    delete:  {e:'🗑', label:(e)=>`נמחקה: "${e.taskTitle}"`},
+    rename:  {e:'✏️', label:(e)=>`שונה שם: "${e.from}" → "${e.to}"`},
+  };
+  if(log.length===0) return<div style={{padding:'40px 0',textAlign:'center',color:'#B0B0B0'}}>
+    <div style={{fontSize:32,marginBottom:8}}>📋</div>
+    <div style={{fontSize:13}}>אין פעולות מתועדות עדיין</div>
+  </div>;
+  return<div>
+    <div style={{fontSize:12,color:'#8C8C8C',marginBottom:12}}>{log.length} פעולות מתועדות</div>
+    {log.map(e=>{
+      const cfg=ACTION_CFG[e.action]||{e:'•',label:()=>e.action};
+      const dt=new Date(e.ts);
+      const dateStr=dt.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});
+      const timeStr=dt.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+      return<div key={e.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 14px',background:'white',border:'1px solid #F0EDE8',borderRadius:8,marginBottom:6}}>
+        <span style={{fontSize:16,flexShrink:0,marginTop:1}}>{cfg.e}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:500}}>{cfg.label(e)}</div>
+          <div style={{fontSize:11,color:'#8C8C8C',marginTop:2,display:'flex',gap:8}}>
+            <span>👤 {e.user}</span>
+            <span>📅 {dateStr}</span>
+            <span>🕐 {timeStr}</span>
+          </div>
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+
 function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const [tab,setTab]=useState('tasks');
   const myT=db.tasks.filter(t=>t.project_id===project.id);
@@ -1826,7 +1906,7 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   });
   const ms=project.milestones||[];
   const prog=ms.length?Math.round(ms.filter(m=>m.completed).length/ms.length*100):0;
-  const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
+  const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'log',l:'לוג',e:'📋'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
   return<div>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}><span style={{color:'#9C9C9C',cursor:'pointer'}} onClick={onBack}>לוח בקרה</span><span style={{color:'#C0C0C0'}}>/</span><span style={{color:'#1A1A1A',fontWeight:600}}>{project.name}</span></div>
@@ -1862,7 +1942,8 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
       {tab==='reqs'&&<ReqsTab reqs={db.reqs.filter(r=>r.project_id===project.id)} pid={project.id} db={db}/>}
       {tab==='app'&&<ApprovalsTab approvs={db.approvs.filter(a=>a.project_id===project.id)} pid={project.id} db={db}/>}
       {tab==='consultants'&&<ConsultantsTab project={project} db={db}/>}
-      {tab==='cfg'&&<SettingsTab project={project} db={db} onDel={()=>{db.delProject(project.id);onBack();}} currentUser={currentUser}/>}
+      {tab==='cfg'&&<SettingsTab project={project} db={db} onDel={()=>{db.delProject(project.id);onBack();}} currentUser={currentUser} onOpenLog={()=>setTab('log')}/>}
+      {tab==='log'&&<LogTab project={project}/>}
     </div>
   </div>;
 }

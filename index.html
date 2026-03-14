@@ -656,7 +656,22 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
     });
   const addDep=id=>{u('depends_on',[...(task.depends_on||[]),id]);setDepSearch('');};
   const remDep=id=>u('depends_on',(task.depends_on||[]).filter(d=>d!==id));
-  const addNote=()=>{if(!noteText.trim())return;u('notes',[...(task.notes||[]),{id:uid(),text:noteText.trim(),date:new Date().toISOString().split('T')[0],author_id:'u1'}]);setNoteText('');};
+  const addNote=()=>{
+    if(!noteText.trim())return;
+    const noteEmail=sessionStorage.getItem('arch_email')||'';
+    const notePartner=partners.find(p=>p.email===noteEmail);
+    const noteMember=(db.officeMembers||[]).find(m=>m.email===noteEmail);
+    const noteAuthorName=notePartner?.name||noteMember?.name||noteEmail||'—';
+    u('notes',[...(task.notes||[]),{
+      id:uid(),
+      text:noteText.trim(),
+      date:new Date().toISOString().split('T')[0],
+      author_id:notePartner?.id||null,
+      author_email:noteEmail,
+      author_name:noteAuthorName,
+    }]);
+    setNoteText('');
+  };
   const delNote=nid=>u('notes',(task.notes||[]).filter(n=>n.id!==nid));
   const proj=allProjects.find(p=>p.id===task.project_id);
   const assignee=partners.find(p=>p.id===task.assignee_id);
@@ -749,7 +764,9 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
         <div>
           <div style={{fontSize:11,fontWeight:700,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>הערות</div>
           {(task.notes||[]).map(n=>{
-            const auth=partners.find(p=>p.id===n.author_id);
+            const auth=partners.find(p=>p.id===n.author_id)
+              ||(n.author_email?(db.officeMembers||[]).find(m=>m.email===n.author_email):null)
+              ||{name:n.author_name||'לא ידוע'};
             return<div key={n.id} style={{display:'flex',gap:8,marginBottom:10}}>
               <Av u={auth} size={26}/>
               <div style={{flex:1,background:'#F7F6F3',borderRadius:8,padding:'8px 10px'}}>
@@ -1112,7 +1129,9 @@ function PartnerChip({partner,style={}}){
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   // Logged wrappers — auto-record to project log
   const loggedEmail=sessionStorage.getItem('arch_email')||'';
-  const logUser=db.partners.find(p=>p.email===loggedEmail)?.name||loggedEmail||'—';
+  const logUser=db.partners.find(p=>p.email===loggedEmail)?.name
+    ||(db.officeMembers||[]).find(m=>m.email===loggedEmail)?.name
+    ||loggedEmail||'—';
   const logUpdTask=(id,ch)=>{
     const t=allTasks.find(x=>x.id===id);
     if(t&&ch.status&&ch.status!==t.status){

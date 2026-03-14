@@ -1120,7 +1120,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
       // Add timestamp to task for In Progress / Done
       if(ch.status==='In Progress') ch={...ch,_ts_started:new Date().toISOString(),_ts_started_by:logUser};
       if(ch.status==='Done')        ch={...ch,_ts_done:new Date().toISOString(),_ts_done_by:logUser};
-      if(ch.status==='To Do')       ch={...ch,_ts_started:null,_ts_done:null};
+      if(ch.status==='To Do')       ch={...ch,_ts_reverted:new Date().toISOString(),_ts_reverted_by:logUser};
     }
     if(t&&ch.title&&ch.title!==t.title){
       db.addLog(pid,{user:logUser,action:'rename',taskTitle:ch.title,from:t.title,to:ch.title});
@@ -1272,16 +1272,26 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
               title="לחץ פעמיים לשינוי שם">{task.title}</span>}
 
         {/* Status timestamps */}
-        {(task._ts_done||task._ts_started)&&(()=>{
-          const ts=task.status==='Done'?task._ts_done:task._ts_started;
-          const by=task.status==='Done'?task._ts_done_by:task._ts_started_by;
+        {(task._ts_done||task._ts_started||task._ts_reverted)&&(()=>{
+          // Pick most relevant timestamp to show
+          let ts,by,icon,color,bg;
+          if(task.status==='Done'&&task._ts_done){
+            ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#059669';bg='#ECFDF5';
+          } else if(task.status==='In Progress'&&task._ts_started){
+            ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#D97706';bg='#FFFBEB';
+          } else if(task._ts_reverted){
+            ts=task._ts_reverted;by=task._ts_reverted_by;icon='↩';color='#9C9C9C';bg='#F3F4F6';
+          } else if(task._ts_done){
+            ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#9C9C9C';bg='#F3F4F6';
+          } else if(task._ts_started){
+            ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#9C9C9C';bg='#F3F4F6';
+          }
           if(!ts) return null;
           const d=new Date(ts);
           const dateStr=d.toLocaleDateString('he-IL',{day:'numeric',month:'short'});
           const timeStr=d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
-          const color=task.status==='Done'?'#059669':'#D97706';
-          return<span style={{fontSize:9,color:color,background:task.status==='Done'?'#ECFDF5':'#FFFBEB',padding:'1px 5px',borderRadius:4,flexShrink:0,whiteSpace:'nowrap'}}>
-            {task.status==='Done'?'✓':'▶'} {dateStr} {timeStr}{by?' · '+by:''}
+          return<span style={{fontSize:9,color,background:bg,padding:'1px 5px',borderRadius:4,flexShrink:0,whiteSpace:'nowrap'}}>
+            {icon} {dateStr} {timeStr}{by?' · '+by:''}
           </span>;
         })()}
 

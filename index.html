@@ -2108,7 +2108,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
         <option value="Low">Low</option>
       </FS>
       {activeF>0&&<button onClick={()=>{setFSt('All');setFC('All');setFU('All');setFP('All');setS('');}} style={{height:34,padding:'0 10px',borderRadius:7,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',fontSize:12,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>× נקה ({activeF})</button>}
-      <div style={{flex:1}}/><Btn onClick={onNew}>+ פרויקט חדש</Btn>
+      <div style={{flex:1}}/><button onClick={onNew} className="inline-flex items-center gap-2 h-10 px-5 bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white font-sans font-medium text-base tracking-tight rounded-lg border border-accent-500 transition-all duration-[180ms] cursor-pointer select-none">+ פרויקט חדש</button>
     </div>
     <div style={{fontSize:12,color:'#8C8C8C',marginBottom:10}}>{filtered.length} פרויקטים</div>
 
@@ -2128,7 +2128,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
             {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
             {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
             {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
-            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:28,background:'#EBF4EF',border:'none',borderRadius:6,fontSize:11,fontWeight:600,color:'#3D7A5A',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>👁 פורטל לקוח</button></div>}
+            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} className="w-full h-8 bg-white hover:bg-stone-50 border border-stone-300 hover:border-accent-400 text-accent-600 font-sans font-semibold text-xs tracking-wide rounded-md transition-all duration-[180ms] cursor-pointer">👁 פורטל לקוח</button></div>}
           </div>
         </div>;
       })}

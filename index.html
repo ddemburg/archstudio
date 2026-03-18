@@ -56,20 +56,11 @@ function sbAuthHeaders(extra) {
 
 // Sign in with Google via Supabase Auth (redirects back to app)
 async function gSignIn() {
-  const { data, error } = await _sbSignInWithGoogle();
-  if (error) throw error;
-  return data;
-}
-
-async function _sbSignInWithGoogle() {
+  // Direct redirect to Supabase Auth — no fetch needed
   const redirectTo = window.location.origin + window.location.pathname;
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`, {
-    method: 'GET',
-    headers: { 'apikey': SUPABASE_ANON }
-  });
-  // Redirect to Google login
   window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
-  return { data: null, error: null };
+  // Returns a promise that never resolves (page redirects away)
+  return new Promise(()=>{});
 }
 
 // Get session from URL hash (after OAuth redirect) or from localStorage

@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- Google GSI not needed — using Supabase Auth -->
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -33,136 +33,164 @@ const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const fmtM=n=>n==null?'—':'₪'+Number(n).toLocaleString('he-IL',{maximumFractionDigits:0});
 const fmtD=s=>{if(!s)return'—';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});};
 const uid=()=>Math.random().toString(36).slice(2,9);
-const GDRIVE_CLIENT_ID = '1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com';
-const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata email profile openid';
-const GDRIVE_FILE_NAME = 'archstudio-data.json';
+const // ── Supabase Auth (Google OAuth via Supabase) ─────────────────────────────────
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';
 
-let _gAccessToken = null;
-let _sbUserEmail  = null;
-let _tokenClient  = null;
+// Auth state
+let _sbSession   = null;   // full Supabase session object
+let _sbUserEmail = '';
+let _gAccessToken = '';    // kept for Google Drive backup only
 
-function gGetTokenClient() {
-  if (!_tokenClient) {
-    _tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GDRIVE_CLIENT_ID,
-      scope: GDRIVE_SCOPE,
-      callback: async (resp) => {
-        if (resp.access_token) {
-          _gAccessToken = resp.access_token;
-          try {
-            localStorage.setItem('arch_hint', '1');
-            const expiry = Date.now() + (resp.expires_in ? resp.expires_in * 1000 : 3500000);
-            sessionStorage.setItem('arch_token', resp.access_token);
-            sessionStorage.setItem('arch_token_exp', expiry);
-            const savedEmail = sessionStorage.getItem('arch_email');
-            if (!savedEmail) {
-              try {
-                const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{Authorization:'Bearer '+resp.access_token}});
-                const info = await r.json();
-                if (info.email) {
-                  _sbUserEmail = info.email;
-                  sessionStorage.setItem('arch_email', info.email);
-                  await sbEnsureMember(info.email, info.name||info.email, info.picture||'');
-                }
-              } catch(e) { console.error('userinfo fetch error:', e); }
-            } else {
-              _sbUserEmail = savedEmail;
-            }
-          } catch(e){}
-          if (window._gTokenResolve) { window._gTokenResolve(resp.access_token); window._gTokenResolve = null; }
-        } else {
-          if (window._gTokenReject) { window._gTokenReject(resp.error); window._gTokenReject = null; }
-        }
-      },
-      error_callback: (e) => {
-        if (window._gTokenReject) { window._gTokenReject(e); window._gTokenReject = null; }
-      }
-    });
-  }
-  return _tokenClient;
+// ── Supabase Auth helpers ──────────────────────────────────────────────────────
+
+function sbAuthHeaders(extra) {
+  const token = _sbSession?.access_token || SUPABASE_ANON;
+  return {
+    'apikey': SUPABASE_ANON,
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    ...extra
+  };
 }
 
-function gSignIn() {
-  return new Promise((resolve, reject) => {
-    window._gTokenResolve = resolve;
-    window._gTokenReject = reject;
-    gGetTokenClient().requestAccessToken({prompt: ''});
+// Sign in with Google via Supabase Auth (redirects back to app)
+async function gSignIn() {
+  const { data, error } = await _sbSignInWithGoogle();
+  if (error) throw error;
+  return data;
+}
+
+async function _sbSignInWithGoogle() {
+  const redirectTo = window.location.origin + window.location.pathname;
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`, {
+    method: 'GET',
+    headers: { 'apikey': SUPABASE_ANON }
   });
+  // Redirect to Google login
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+  return { data: null, error: null };
 }
 
-function gTrySilentSignIn() {
+// Get session from URL hash (after OAuth redirect) or from localStorage
+async function gTrySilentSignIn() {
+  // 1. Check URL hash for new session (after redirect from Google)
+  const hash = window.location.hash;
+  if (hash && hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const accessToken  = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    const expiresIn    = parseInt(params.get('expires_in') || '3600');
+    if (accessToken) {
+      // Get user info from Supabase
+      const userResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + accessToken }
+      });
+      if (userResp.ok) {
+        const userData = await userResp.json();
+        _sbSession = {
+          access_token:  accessToken,
+          refresh_token: refreshToken,
+          expires_at:    Date.now() + expiresIn * 1000,
+          user:          userData
+        };
+        _sbUserEmail = userData.email || '';
+        // Save session to sessionStorage
+        try {
+          sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
+          sessionStorage.setItem('arch_email', _sbUserEmail);
+        } catch(e) {}
+        // Clean URL hash
+        window.history.replaceState(null, '', window.location.pathname);
+        return true;
+      }
+    }
+  }
+
+  // 2. Check sessionStorage for existing session
   try {
-    const token = sessionStorage.getItem('arch_token');
-    const exp = parseInt(sessionStorage.getItem('arch_token_exp') || '0');
-    if (token && exp > Date.now() + 60000) {
-      _gAccessToken = token;
-      const email = sessionStorage.getItem('arch_email');
-      if (email) _sbUserEmail = email;
-      return Promise.resolve(true);
+    const saved = sessionStorage.getItem('arch_session');
+    if (saved) {
+      const session = JSON.parse(saved);
+      // Check not expired (with 60s buffer)
+      if (session.expires_at > Date.now() + 60000) {
+        _sbSession   = session;
+        _sbUserEmail = session.user?.email || sessionStorage.getItem('arch_email') || '';
+        return true;
+      }
+      // Try refresh token
+      if (session.refresh_token) {
+        const refreshed = await _sbRefreshSession(session.refresh_token);
+        if (refreshed) return true;
+      }
     }
   } catch(e) {}
-  const hint = (() => { try { return localStorage.getItem('arch_hint'); } catch(e) { return null; } })();
-  if (!hint) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    window._gTokenResolve = (token) => resolve(true);
-    window._gTokenReject = () => resolve(false);
-    try { gGetTokenClient().requestAccessToken({prompt: ''}); } catch(e) { resolve(false); }
-  });
+
+  return false;
 }
 
-function gIsSignedIn() { return !!_gAccessToken; }
+// Refresh session using refresh token
+async function _sbRefreshSession(refreshToken) {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    if (data.access_token) {
+      _sbSession = {
+        access_token:  data.access_token,
+        refresh_token: data.refresh_token || refreshToken,
+        expires_at:    Date.now() + (data.expires_in || 3600) * 1000,
+        user:          data.user
+      };
+      _sbUserEmail = data.user?.email || '';
+      sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
+      sessionStorage.setItem('arch_email', _sbUserEmail);
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
 
-// ── Supabase helpers ──────────────────────────────────────────────────────────
+// Sign out
+async function gSignOut() {
+  try {
+    if (_sbSession?.access_token) {
+      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + _sbSession.access_token }
+      });
+    }
+  } catch(e) {}
+  _sbSession   = null;
+  _sbUserEmail = '';
+  sessionStorage.removeItem('arch_session');
+  sessionStorage.removeItem('arch_email');
+  sessionStorage.removeItem('arch_token');
+  localStorage.removeItem('arch_hint');
+}
+
+function gIsSignedIn() { return !!_sbSession; }
+
+// ── Supabase REST helpers (now use authenticated token) ───────────────────────
+
 function sbHeaders(extra) {
-  return { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, 'Content-Type': 'application/json', ...extra };
+  return sbAuthHeaders(extra);
 }
 
 async function sbQuery(path, options={}) {
-  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, { headers: sbHeaders(), ...options });
-  if (!res.ok) { const e = await res.text(); throw new Error('Supabase error: ' + e); }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    headers: sbHeaders(),
+    ...options
+  });
+  if (!r.ok) throw new Error(await r.text());
+  if (r.status === 204) return null;
+  return r.json();
 }
 
-async function sbGetMember(email) {
-  if (!email) return null;
-  const rows = await sbQuery(`office_members?email=eq.${encodeURIComponent(email)}&active=eq.true&select=*,offices(name)&limit=1`);
-  return rows?.[0] || null;
-}
-
-async function sbEnsureMember(email, name, picture) {
-  let member = await sbGetMember(email);
-  if (!member) {
-    const offices = await sbQuery('offices', {
-      method: 'POST',
-      headers: sbHeaders({ 'Prefer': 'return=representation' }),
-      body: JSON.stringify({ name: 'המשרד שלי' })
-    });
-    const officeId = offices[0].id;
-    await sbQuery('office_members', {
-      method: 'POST',
-      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
-      body: JSON.stringify({ office_id: officeId, email, name, picture, role: 'admin', assigned_projects: [] })
-    });
-    await sbQuery('office_data', {
-      method: 'POST',
-      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
-      body: JSON.stringify({ office_id: officeId, data: { projects:[],tasks:[],docs:[],reqs:[],approvs:[],committees:[],partners:[],templates:[],crm:[],leads:[] } })
-    });
-    member = await sbGetMember(email);
-  } else {
-    await sbQuery(`office_members?email=eq.${encodeURIComponent(email)}`, {
-      method: 'PATCH',
-      headers: sbHeaders({ 'Prefer': 'return=minimal' }),
-      body: JSON.stringify({ name, picture })
-    });
-  }
-  _sbUserEmail = email;
-  try { sessionStorage.setItem('arch_email', email); } catch(e){}
-  return member;
-}
 
 async function apiLoad() {
   if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
@@ -3206,7 +3234,9 @@ function DriveLoginScreen({onLogin}){
   const doLogin=async()=>{
     setLoading(true); setErr('');
     try{
+      // gSignIn() redirects to Google via Supabase — page will reload after auth
       await gSignIn();
+      // Code below won't run (redirect happens above)
       onLogin();
     }
     catch(e){ setErr('הכניסה נכשלה — נסה שוב'); setLoading(false); }
@@ -3259,21 +3289,7 @@ function App(){
     let cancelled=false;
     const tryAuto=async()=>{
       try{
-        // First check sessionStorage - instant, no network
-        const token = sessionStorage.getItem('arch_token');
-        const exp = parseInt(sessionStorage.getItem('arch_token_exp')||'0');
-        if(token && exp > Date.now()+60000){
-          if(!cancelled){
-            _gAccessToken = token;
-            setLoggedIn(true);
-            await db.driveLoad();
-            setAutoLogging(false);
-          }
-          return;
-        }
-        // Wait for GSI to load then try silent
-        await new Promise(r=>setTimeout(r,1200));
-        if(cancelled)return;
+        // Try to restore Supabase session (handles URL hash + sessionStorage)
         const ok=await gTrySilentSignIn();
         if(!cancelled){
           if(ok){ setLoggedIn(true); await db.driveLoad(); }
@@ -3388,10 +3404,7 @@ function App(){
         <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{currentUser?.name||loggedEmail||'מנהל'}</div><div style={{fontSize:11,color:'#8C8C8C'}}>{currentUser?.role||''} • {db.partners.length} בצוות</div></div>
         <button onClick={()=>navTo('appsettings',null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"rgba(255,255,255,.3)",padding:2,transition:"color .15s"}} onMouseOver={e=>e.target.style.color="rgba(255,255,255,.8)"} onMouseOut={e=>e.target.style.color="rgba(255,255,255,.3)"} title="הגדרות">⚙️</button>
         <button onClick={()=>{
-          sessionStorage.removeItem('arch_token');
-          sessionStorage.removeItem('arch_email');
-          localStorage.removeItem('arch_hint');
-          window.location.reload();
+          gSignOut().then(()=>window.location.reload());
         }} style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:6,cursor:"pointer",fontSize:11,color:"rgba(255,255,255,.4)",padding:"3px 8px",transition:"all .15s",fontFamily:"Heebo,sans-serif"}} onMouseOver={e=>{e.currentTarget.style.color="white";e.currentTarget.style.borderColor="rgba(255,100,100,.6)";e.currentTarget.style.background="rgba(255,100,100,.15)"}} onMouseOut={e=>{e.currentTarget.style.color="rgba(255,255,255,.4)";e.currentTarget.style.borderColor="rgba(255,255,255,.15)";e.currentTarget.style.background="none"}} title="התנתק">יציאה</button>
       </div>
     </aside>

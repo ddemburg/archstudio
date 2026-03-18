@@ -33,7 +33,7 @@ const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const fmtM=n=>n==null?'—':'₪'+Number(n).toLocaleString('he-IL',{maximumFractionDigits:0});
 const fmtD=s=>{if(!s)return'—';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});};
 const uid=()=>Math.random().toString(36).slice(2,9);
-const // ── Supabase Auth (Google OAuth via Supabase) ─────────────────────────────────
+// ── Supabase Auth (Google OAuth via Supabase) ─────────────────────────────────
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';
 
@@ -3194,7 +3194,7 @@ function AppSettingsPage({db}){
     <div style={{background:'white',border:'1px solid #FECACA',borderRadius:12,padding:20,marginBottom:16}}>
       <div style={{fontSize:14,fontWeight:600,marginBottom:4,color:'#DC2626'}}>יציאה מהמערכת</div>
       <p style={{fontSize:13,color:'#8C8C8C',marginBottom:14}}>התנתק מהחשבון הנוכחי</p>
-      <button onClick={()=>{sessionStorage.removeItem('arch_token');sessionStorage.removeItem('arch_email');localStorage.removeItem('arch_hint');window.location.reload();}} style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 20px',fontSize:13,fontWeight:600,color:'#DC2626',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>התנתק</button>
+      <button onClick={()=>gSignOut().then(()=>window.location.reload())} style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 20px',fontSize:13,fontWeight:600,color:'#DC2626',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>התנתק</button>
     </div>
 
     <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:16}}>

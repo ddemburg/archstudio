@@ -3318,6 +3318,9 @@ function App(){
     let cancelled=false;
     const tryAuto=async()=>{
       try{
+        // Small delay to ensure sessionStorage is readable and React is mounted
+        await new Promise(r=>setTimeout(r,100));
+        if(cancelled) return;
         // Try to restore Supabase session (handles URL hash + sessionStorage)
         const ok=await gTrySilentSignIn();
         if(!cancelled){

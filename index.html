@@ -700,6 +700,37 @@ function Modal({open,onClose,title,children,wide,xl}){
   </div>;
 }
 
+// ─── Confirm Modal ───────────────────────────────────────────────────────────
+function ConfirmModal({open,title,message,onConfirm,onCancel,danger=true}){
+  if(!open)return null;
+  return<div onClick={onCancel} style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.45)'}}>
+    <div onClick={e=>e.stopPropagation()} className="fade" style={{background:'white',borderRadius:14,boxShadow:'0 20px 60px rgba(0,0,0,.2)',width:'100%',maxWidth:360,padding:24}}>
+      <div style={{fontSize:17,fontWeight:700,marginBottom:8}}>{title||'אישור'}</div>
+      {message&&<div style={{fontSize:14,color:'#6B6B6B',marginBottom:20,lineHeight:1.5}}>{message}</div>}
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn v="outline" onClick={onCancel}>ביטול</Btn>
+        <Btn v={danger?'danger':'primary'} onClick={onConfirm}>{danger?'מחק':'אישור'}</Btn>
+      </div>
+    </div>
+  </div>;
+}
+
+function useConfirm(){
+  const [state,setState]=useState({open:false,title:'',message:'',danger:true,resolve:null});
+  const confirm=(title,message,danger=true)=>new Promise(resolve=>{
+    setState({open:true,title,message,danger,resolve});
+  });
+  const modal=<ConfirmModal
+    open={state.open}
+    title={state.title}
+    message={state.message}
+    danger={state.danger}
+    onConfirm={()=>{setState(s=>({...s,open:false}));state.resolve(true);}}
+    onCancel={()=>{setState(s=>({...s,open:false}));state.resolve(false);}}
+  />;
+  return[confirm,modal];
+}
+
 // ─── Task Modal (all inline) ──────────────────────────────────────────────────
 function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpToTask,db}){
   const [saved,setSaved]=useState(false);
@@ -717,7 +748,7 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
   const candidates=allTasks
     .filter(t=>
       t.id!==task.id &&
-      !t.parent_task_id &&  // top-level tasks only for deps
+      t.id!==task.parent_task_id &&  // not own parent
       !(task.depends_on||[]).includes(t.id) &&
       (!depSearch || t.title.includes(depSearch) || (allProjects.find(p=>p.id===t.project_id)||{}).name?.includes(depSearch))
     )
@@ -1200,6 +1231,7 @@ function PartnerChip({partner,style={}}){
 
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
+  const [confirm,confirmModal]=useConfirm();
   // Logged wrappers — auto-record to project log
   const loggedEmail=sessionStorage.getItem('arch_email')||'';
   const logUser=db.partners.find(p=>p.email===loggedEmail)?.name
@@ -1223,8 +1255,12 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     db.addTask(task);
     db.addLog(pid,{user:logUser,action:'add',taskTitle:task.title});
   };
-  const logDelTask=(id)=>{
+  const logDelTask=async(id)=>{
     const t=allTasks.find(x=>x.id===id);
+    const hasChildren=allTasks.some(x=>x.parent_task_id===id);
+    const msg=hasChildren?'יש תת-משימות שגם יימחקו. להמשיך?':'למחוק את המשימה "'+( t?.title||'')+'"?';
+    const ok=await confirm('מחיקת משימה',msg,true);
+    if(!ok)return;
     if(t) db.addLog(pid,{user:logUser,action:'delete',taskTitle:t.title});
     db.delTask(id);
   };
@@ -1249,8 +1285,26 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   // Only top-level tasks (no parent) belong to sections
   const myTasks=tasks.filter(t=>!t.parent_task_id);
   const dbSecs=Array.from(new Set(myTasks.map(t=>t.section||'')));
-  const sections=Array.from(new Set([...dbSecs,...extras]));
+  const allSecs=Array.from(new Set([...dbSecs,...extras]));
+  // Apply saved section order from project
+  const proj=allProjs.find(p=>p.id===pid)||{};
+  const savedOrder=proj.section_order||[];
+  const sections=[...allSecs].sort((a,b)=>{
+    const ia=savedOrder.indexOf(a); const ib=savedOrder.indexOf(b);
+    if(ia===-1&&ib===-1)return 0; if(ia===-1)return 1; if(ib===-1)return-1; return ia-ib;
+  });
   const bySec=s=>myTasks.filter(t=>(t.section||'')===s);
+  // Drag state for sections
+  const [dragSec,setDragSec]=useState(null);
+  const [dragOverSec,setDragOverSec]=useState(null);
+  const onSecDrop=(targetSec)=>{
+    if(!dragSec||dragSec===targetSec)return;
+    const cur=[...sections];
+    const from=cur.indexOf(dragSec);const to=cur.indexOf(targetSec);
+    cur.splice(from,1);cur.splice(to,0,dragSec);
+    db.updProject(pid,{section_order:cur});
+    setDragSec(null);setDragOverSec(null);
+  };
 
   // ── Section (category) helpers ────────────────────────────────────────────
   const proj=allProjs.find(p=>p.id===pid)||{};
@@ -1317,8 +1371,23 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
   const openTask=openId?allTasks.find(t=>t.id===openId):null;
 
+  // Drag state for tasks within sections
+  const [dragTask,setDragTask]=useState(null);
+  const [dragOverTask,setDragOverTask]=useState(null);
+  const onTaskDrop=(targetId,secName)=>{
+    if(!dragTask||dragTask===targetId)return;
+    const cur=bySec(secName).map(t=>t.id);
+    const from=cur.indexOf(dragTask);const to=cur.indexOf(targetId);
+    if(from===-1||to===-1)return;
+    cur.splice(from,1);cur.splice(to,0,dragTask);
+    // Save task order in project
+    const existingOrder=proj.task_order||{};
+    db.updProject(pid,{task_order:{...existingOrder,[secName||'__']:cur}});
+    setDragTask(null);setDragOverTask(null);
+  };
+
   // ── Recursive TaskRow ────────────────────────────────────────────────────
-  const TaskRow=({task,depth=0})=>{
+  const TaskRow=({task,depth=0,secName})=>{
     const bl=blocked(task);
     const asgn=partners.find(p=>p.id===task.assignee_id);
     const children=allTasks.filter(t=>t.parent_task_id===task.id);
@@ -1334,10 +1403,17 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     // indent via depth
     const indent=depth*18;
 
-    return<div>
+    return<div
+      draggable={depth===0}
+      onDragStart={()=>depth===0&&setDragTask(task.id)}
+      onDragEnd={()=>{setDragTask(null);setDragOverTask(null);}}
+      onDragOver={e=>{if(depth===0){e.preventDefault();setDragOverTask(task.id);}}}
+      onDrop={()=>depth===0&&onTaskDrop(task.id,task.section||'')}
+      style={{opacity:dragTask===task.id?.4:1,background:dragOverTask===task.id&&dragTask!==task.id?'#F0F7F3':'',transition:'background .1s'}}>
       {/* Row */}
-      <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'white'}}
+      <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'transparent'}}
         onClick={()=>setOID(task.id)}>
+        {depth===0&&<span style={{color:'#C0C0C0',cursor:'grab',fontSize:11,userSelect:'none',flexShrink:0}} title="גרור לסדר מחדש">⠿</span>}
 
         {/* Expand arrow */}
         {hasChildren
@@ -1442,6 +1518,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   };
 
   return<div>
+    {confirmModal}
     {openTask&&<TaskModal task={openTask} allTasks={allTasks} allProjects={allProjs} partners={partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={jumpToTask} db={db}/>}
     <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
       <input value={newTitle} onChange={e=>setNT(e.target.value)}
@@ -1471,7 +1548,13 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           const depsMet=isSecDepsMet(sec);
           const hasDeps=(secDeps[sec]||[]).length>0;
           const otherSecs=sections.filter(s=>s&&s!==sec);
-          return<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+          return<div
+            draggable onDragStart={()=>setDragSec(sec)} onDragEnd={()=>{setDragSec(null);setDragOverSec(null);}}
+            onDragOver={e=>{e.preventDefault();setDragOverSec(sec);}} onDrop={()=>onSecDrop(sec)}
+            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,opacity:dragSec===sec?.4:1,
+              background:dragOverSec===sec&&dragSec!==sec?'#E8EDE9':'',borderRadius:6,transition:'background .1s'}}>
+            {/* Drag handle */}
+            <span style={{color:'#C0C0C0',cursor:'grab',fontSize:12,userSelect:'none',flexShrink:0}} title="גרור לסדר מחדש">⠿</span>
             {/* Collapse arrow */}
             <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
 
@@ -1519,7 +1602,14 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
         })()}
         {exp&&<div style={{background:'white',border:'1px solid #F0EDE8',borderRadius:10,overflow:'hidden'}}>
           {st.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
-          {st.map(t=><TaskRow key={t.id} task={t} depth={0}/>)}
+          {(()=>{
+            const order=(proj.task_order||{})[sec||'__']||[];
+            const sorted=[...st].sort((a,b)=>{
+              const ia=order.indexOf(a.id);const ib=order.indexOf(b.id);
+              if(ia===-1&&ib===-1)return 0;if(ia===-1)return 1;if(ib===-1)return-1;return ia-ib;
+            });
+            return sorted.map(t=><TaskRow key={t.id} task={t} depth={0} secName={sec||''}/>);
+          })()}
           {addingIn===sec
             ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid #F5F5F3'}}>
               <input autoFocus value={newTitle} onChange={e=>setNT(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addTask(sec);if(e.key==='Escape')setAI(null);}} placeholder="שם משימה..." style={{flex:1,height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
@@ -1754,12 +1844,37 @@ function DocsTab({docs,pid,db}){
   const soon=d=>{if(!d)return false;const dt=new Date(d);const diff=(dt-today)/(1000*60*60*24);return diff>=0&&diff<=30;};
   const expired=d=>{if(!d)return false;return new Date(d)<today;};
   const [sf,setSF]=useState(false);const [form,setF]=useState({name:'',category:'Other'});
+  const [uploading,setUploading]=useState(false);
+  const fileRef=useRef();
   const cats=['Blueprint','Permit','Contract','Report','Correspondence','Other'];
   const CC={Blueprint:'#EFF6FF|#1D4ED8',Permit:'#FFFBEB|#B45309',Contract:'#F5F3FF|#6D28D9',Report:'#ECFDF5|#065F46',Correspondence:'#FFF1F2|#BE123C',Other:'#F3F4F6|#6B7280'};
   const add=()=>{if(!form.name.trim())return;db.addDoc({project_id:pid,...form});setF({name:'',category:'Other'});setSF(false);};
+  const handleUpload=async(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    setUploading(true);
+    try{
+      const member=await _getEmail().then(email=>sbGetMember(email));
+      if(member){
+        const path=await sbUploadFile(member.office_id,pid,file);
+        db.addDoc({project_id:pid,name:file.name,category:'Other',expiry:'',storage_path:path});
+      } else {
+        // Fallback — add metadata only
+        db.addDoc({project_id:pid,name:file.name,category:'Other',expiry:''});
+      }
+    }catch(err){alert('שגיאה בהעלאה: '+err.message);}
+    setUploading(false);
+    e.target.value='';
+  };
   return<div>
-    {!sf?<Btn v="outline" sx={{marginBottom:14,borderStyle:'dashed'}} onClick={()=>setSF(true)}>📎 הוסף מסמך</Btn>
-    :<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+    <input ref={fileRef} type="file" style={{display:'none'}} onChange={handleUpload}/>
+    <div style={{display:'flex',gap:8,marginBottom:14}}>
+      <Btn v="outline" sx={{borderStyle:'dashed'}} onClick={()=>setSF(!sf)}>📝 הוסף ידנית</Btn>
+      <Btn v="outline" sx={{borderStyle:'dashed',borderColor:'#6366f1',color:'#6366f1'}} onClick={()=>fileRef.current?.click()} disabled={uploading}>
+        {uploading?'⏳ מעלה...':'📎 העלה קובץ'}
+      </Btn>
+    </div>
+    {sf&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
       <I label="שם" value={form.name} onChange={e=>setF(f=>({...f,name:e.target.value}))} placeholder='תוכנית קומה v3'/>
       <SE label="קטגוריה" value={form.category} onChange={e=>setF(f=>({...f,category:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</SE>
       <I label="תוקף (לא חובה)" type="date" value={form.expiry||''} onChange={e=>setF(f=>({...f,expiry:e.target.value}))}/>
@@ -3422,8 +3537,19 @@ function MobileTaskSheet({task,allTasks,partners,db,onClose}){
     {/* Title + delete */}
     <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12,gap:8}}>
       <div style={{fontSize:17,fontWeight:700,lineHeight:1.4,flex:1}}>{task.title}</div>
-      <button onClick={()=>{db.delTask(task.id);onClose();}}
-        style={{background:'#FEF2F2',border:'none',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:13,color:'#DC2626',flexShrink:0}}>
+      <button onClick={async()=>{
+        const hasChildren=allTasks.some(x=>x.parent_task_id===task.id);
+        const msg=hasChildren?'יש תת-משימות שגם יימחקו. להמשיך?':'למחוק את "'+task.title+'"?';
+        if(!window._confirmDelete)window._confirmDelete=()=>Promise.resolve(window.confirm('מחק?'));
+        const el=document.createElement('div');el.id='mob-confirm-'+task.id;document.body.appendChild(el);
+        const ok=await new Promise(res=>{
+          const root=ReactDOM.createRoot(el);
+          root.render(<ConfirmModal open title="מחיקת משימה" message={msg} danger
+            onConfirm={()=>{root.unmount();el.remove();res(true);}}
+            onCancel={()=>{root.unmount();el.remove();res(false);}}/>);
+        });
+        if(ok){db.delTask(task.id);onClose();}
+      }} style={{background:'#FEF2F2',border:'none',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:13,color:'#DC2626',flexShrink:0}}>
         🗑 מחק
       </button>
     </div>

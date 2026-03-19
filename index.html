@@ -3142,12 +3142,7 @@ function DriveLoginScreen({onLogin}){
   const [err,setErr]=useState('');
   const doLogin=async()=>{
     setLoading(true); setErr('');
-    try{
-      // gSignIn() redirects to Google via Supabase — page will reload after auth
-      await gSignIn();
-      // Code below won't run (redirect happens above)
-      onLogin();
-    }
+    try{ await onLogin(); }
     catch(e){ setErr('הכניסה נכשלה — נסה שוב'); setLoading(false); }
   };
   return(
@@ -3182,36 +3177,39 @@ function App(){
   });
   const [showNew,setShowNew]=useState(false);
   const [portalPid,setPortalPid]=useState(null);
-  // currentUser is derived from logged-in Google email — no manual selection needed
   const [loggedEmail,setLoggedEmail]=useState('');
-  useEffect(()=>{ sb.auth.getUser().then(({data})=>setLoggedEmail(data?.user?.email||'')); },[]);
-  const currentUser = db.partners.find(p=>p.email===loggedEmail) || db.partners[0];
-
+  const [loggedIn,setLoggedIn]=useState(false);
+  const [autoLogging,setAutoLogging]=useState(true);
   const [preTpl,setPreTpl]=useState('');
   const [sbFilter,setSBF]=useState('all:All');
   const proj=db.projects.find(p=>p.id===pid);
-  const [loggedIn,setLoggedIn]=useState(false);
-  const [autoLogging,setAutoLogging]=useState(true);
+  const currentUser = db.partners.find(p=>p.email===loggedEmail) || db.partners[0];
 
-  // Try silent login on first render
+  // Single source of truth: onAuthStateChange handles initial session + login + logout
   useEffect(()=>{
-    let cancelled=false;
-    (async()=>{
-      try{
-        const ok = await gTrySilentSignIn();
-        if(!cancelled){
-          if(ok){ setLoggedIn(true); await db.driveLoad(); }
-          setAutoLogging(false);
-        }
-      }catch(e){ if(!cancelled) setAutoLogging(false); }
-    })();
-    return()=>{cancelled=true;};
+    const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        // Token cache for REST calls
+        _cachedToken = session.access_token;
+        const email = session.user?.email || '';
+        setLoggedEmail(email);
+        setLoggedIn(true);
+        setAutoLogging(false);
+        await db.driveLoad();
+      } else {
+        // No session — show login screen
+        _cachedToken = SUPABASE_ANON;
+        setLoggedIn(false);
+        setAutoLogging(false);
+      }
+    });
+    return () => subscription.unsubscribe();
   },[db.driveLoad]);
 
-  const handleLogin=async()=>{
-    setLoggedIn(true);
-    await db.driveLoad();
-  };
+  const handleLogin = () => sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + window.location.pathname }
+  });
 
   // Handle browser back/forward - MUST be before any early returns
   useEffect(()=>{

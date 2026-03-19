@@ -36,7 +36,14 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 // ── Supabase client (handles auth, PKCE, session refresh automatically) ──────
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    detectSessionInUrl: true,
+    flowType: 'implicit',
+    persistSession: true,
+    storage: window.localStorage,
+  }
+});
 
 // ── Auth helpers (thin wrappers around sb.auth) ───────────────────────────────
 const gSignIn = () => sb.auth.signInWithOAuth({

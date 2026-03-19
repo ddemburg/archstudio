@@ -41,7 +41,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 // ── Auth helpers (thin wrappers around sb.auth) ───────────────────────────────
 const gSignIn = () => sb.auth.signInWithOAuth({
   provider: 'google',
-  options: { redirectTo: window.location.origin + window.location.pathname }
+  options: { redirectTo: 'https://ddemburg.github.io/archstudio/index.html' }
 });
 
 const gSignOut = () => sb.auth.signOut();
@@ -3208,7 +3208,7 @@ function App(){
 
   const handleLogin = () => sb.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + window.location.pathname }
+    options: { redirectTo: 'https://ddemburg.github.io/archstudio/index.html' }
   });
 
   // Handle browser back/forward - MUST be before any early returns

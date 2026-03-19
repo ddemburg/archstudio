@@ -1404,16 +1404,26 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     const indent=depth*18;
 
     return<div
-      draggable={depth===0}
-      onDragStart={()=>depth===0&&setDragTask(task.id)}
-      onDragEnd={()=>{setDragTask(null);setDragOverTask(null);}}
       onDragOver={e=>{if(depth===0){e.preventDefault();setDragOverTask(task.id);}}}
+      onDragLeave={()=>setDragOverTask(null)}
       onDrop={()=>depth===0&&onTaskDrop(task.id,task.section||'')}
-      style={{opacity:dragTask===task.id?.4:1,background:dragOverTask===task.id&&dragTask!==task.id?'#F0F7F3':'',transition:'background .1s'}}>
+      style={{
+        opacity:dragTask===task.id?.3:1,
+        borderTop:depth===0&&dragOverTask===task.id&&dragTask!==task.id?'2px solid #3D7A5A':'2px solid transparent',
+        transition:'border-color .1s,opacity .1s'
+      }}>
       {/* Row */}
       <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'transparent'}}
         onClick={()=>setOID(task.id)}>
-        {depth===0&&<span style={{color:'#C0C0C0',cursor:'grab',fontSize:11,userSelect:'none',flexShrink:0}} title="גרור לסדר מחדש">⠿</span>}
+        {depth===0&&<span
+          draggable
+          onDragStart={e=>{e.stopPropagation();setDragTask(task.id);}}
+          onDragEnd={()=>{setDragTask(null);setDragOverTask(null);}}
+          style={{color:'#B0B0B0',cursor:'grab',fontSize:14,userSelect:'none',flexShrink:0,
+            padding:'2px 5px',borderRadius:4,lineHeight:1,
+            background:dragTask===task.id?'#E8EDE9':'transparent',transition:'background .1s'}}
+          title="גרור לסדר מחדש"
+          onClick={e=>e.stopPropagation()}>⠿⠿</span>}
 
         {/* Expand arrow */}
         {hasChildren
@@ -1549,12 +1559,22 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           const hasDeps=(secDeps[sec]||[]).length>0;
           const otherSecs=sections.filter(s=>s&&s!==sec);
           return<div
-            draggable onDragStart={()=>setDragSec(sec)} onDragEnd={()=>{setDragSec(null);setDragOverSec(null);}}
-            onDragOver={e=>{e.preventDefault();setDragOverSec(sec);}} onDrop={()=>onSecDrop(sec)}
-            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,opacity:dragSec===sec?.4:1,
-              background:dragOverSec===sec&&dragSec!==sec?'#E8EDE9':'',borderRadius:6,transition:'background .1s'}}>
-            {/* Drag handle */}
-            <span style={{color:'#C0C0C0',cursor:'grab',fontSize:12,userSelect:'none',flexShrink:0}} title="גרור לסדר מחדש">⠿</span>
+            onDragOver={e=>{e.preventDefault();setDragOverSec(sec);}}
+            onDragLeave={()=>setDragOverSec(null)}
+            onDrop={()=>onSecDrop(sec)}
+            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,opacity:dragSec===sec?.35:1,
+              borderTop:dragOverSec===sec&&dragSec!==sec?'2px solid #3D7A5A':'2px solid transparent',
+              transition:'border-color .12s,opacity .12s'}}>
+            {/* Drag handle — only this triggers drag */}
+            <span
+              draggable
+              onDragStart={e=>{e.stopPropagation();setDragSec(sec);}}
+              onDragEnd={()=>{setDragSec(null);setDragOverSec(null);}}
+              style={{color:'#B0B0B0',cursor:'grab',fontSize:14,userSelect:'none',flexShrink:0,
+                padding:'2px 4px',borderRadius:4,lineHeight:1,
+                background:dragSec===sec?'#E8EDE9':'transparent',
+                transition:'background .1s'}}
+              title="גרור לסדר מחדש">⠿⠿</span>
             {/* Collapse arrow */}
             <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
 

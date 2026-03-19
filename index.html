@@ -700,6 +700,88 @@ function Modal({open,onClose,title,children,wide,xl}){
   </div>;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SORTABLE — smooth drag-to-reorder using pointer events
+// ═══════════════════════════════════════════════════════════════════════════
+function useSortable(items, onReorder) {
+  const [dragging, setDragging] = useState(null);   // index being dragged
+  const [over, setOver] = useState(null);            // index being hovered
+  const [ghost, setGhost] = useState(null);          // {x,y,w,h,label}
+  const startY = useRef(0);
+  const startX = useRef(0);
+
+  const onHandleMouseDown = (e, index, label) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.closest('[data-sortable-item]')?.getBoundingClientRect();
+    startY.current = e.clientY;
+    startX.current = e.clientX;
+    setDragging(index);
+    setOver(index);
+    setGhost({
+      x: e.clientX - 20,
+      y: e.clientY - 12,
+      w: rect ? rect.width : 200,
+      label,
+    });
+
+    const onMove = (me) => {
+      setGhost(g => g ? ({ ...g, x: me.clientX - 20, y: me.clientY - 12 }) : null);
+      // Find which item we're over by checking all sortable items
+      const els = document.querySelectorAll('[data-sortable-item]');
+      let found = null;
+      els.forEach((el, i) => {
+        const r = el.getBoundingClientRect();
+        if (me.clientY >= r.top && me.clientY <= r.bottom) found = i;
+      });
+      if (found !== null) setOver(found);
+    };
+
+    const onUp = () => {
+      setGhost(null);
+      setOver(prev => {
+        setDragging(di => {
+          if (di !== null && prev !== null && di !== prev) {
+            const next = [...items];
+            const [removed] = next.splice(di, 1);
+            next.splice(prev, 0, removed);
+            onReorder(next);
+          }
+          return null;
+        });
+        return null;
+      });
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  return { dragging, over, ghost, onHandleMouseDown };
+}
+
+// Ghost element that follows the mouse
+function DragGhost({ ghost }) {
+  if (!ghost) return null;
+  return ReactDOM.createPortal(
+    <div style={{
+      position: 'fixed', left: ghost.x, top: ghost.y, zIndex: 9999,
+      background: 'white', border: '2px solid #3D7A5A', borderRadius: 8,
+      padding: '6px 14px', fontSize: 13, fontWeight: 600,
+      boxShadow: '0 8px 24px rgba(0,0,0,.18)', pointerEvents: 'none',
+      maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      color: '#1A1A1A', fontFamily: 'Heebo,sans-serif',
+      transform: 'rotate(-1.5deg)',
+    }}>
+      ⠿ {ghost.label}
+    </div>,
+    document.body
+  );
+}
+
 // ─── Confirm Modal ───────────────────────────────────────────────────────────
 function ConfirmModal({open,title,message,onConfirm,onCancel,danger=true}){
   if(!open)return null;
@@ -1294,17 +1376,13 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     if(ia===-1&&ib===-1)return 0; if(ia===-1)return 1; if(ib===-1)return-1; return ia-ib;
   });
   const bySec=s=>myTasks.filter(t=>(t.section||'')===s);
-  // Drag state for sections
-  const [dragSec,setDragSec]=useState(null);
-  const [dragOverSec,setDragOverSec]=useState(null);
-  const onSecDrop=(targetSec)=>{
-    if(!dragSec||dragSec===targetSec)return;
-    const cur=[...sections];
-    const from=cur.indexOf(dragSec);const to=cur.indexOf(targetSec);
-    cur.splice(from,1);cur.splice(to,0,dragSec);
-    db.updProject(pid,{section_order:cur});
-    setDragSec(null);setDragOverSec(null);
-  };
+  // Section sort
+  const namedSections = sections.filter(s=>s!=='');
+  const secSort = useSortable(namedSections, ordered => {
+    // Put unnamed section at end
+    const hasEmpty = sections.includes('');
+    db.updProject(pid, {section_order: hasEmpty ? [...ordered,''] : ordered});
+  });
 
   // ── Section (category) helpers ────────────────────────────────────────────
   const proj=allProjs.find(p=>p.id===pid)||{};
@@ -1371,23 +1449,10 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
   const openTask=openId?allTasks.find(t=>t.id===openId):null;
 
-  // Drag state for tasks within sections
-  const [dragTask,setDragTask]=useState(null);
-  const [dragOverTask,setDragOverTask]=useState(null);
-  const onTaskDrop=(targetId,secName)=>{
-    if(!dragTask||dragTask===targetId)return;
-    const cur=bySec(secName).map(t=>t.id);
-    const from=cur.indexOf(dragTask);const to=cur.indexOf(targetId);
-    if(from===-1||to===-1)return;
-    cur.splice(from,1);cur.splice(to,0,dragTask);
-    // Save task order in project
-    const existingOrder=projData.task_order||{};
-    db.updProject(pid,{task_order:{...existingOrder,[secName||'__']:cur}});
-    setDragTask(null);setDragOverTask(null);
-  };
+
 
   // ── Recursive TaskRow ────────────────────────────────────────────────────
-  const TaskRow=({task,depth=0,secName})=>{
+  const TaskRow=({task,depth=0,secName,sortCtx,sortIdx})=>{
     const bl=blocked(task);
     const asgn=partners.find(p=>p.id===task.assignee_id);
     const children=allTasks.filter(t=>t.parent_task_id===task.id);
@@ -1403,26 +1468,24 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     // indent via depth
     const indent=depth*18;
 
+    const isDragging = sortCtx && sortCtx.dragging === sortIdx;
+    const isOver = sortCtx && sortCtx.over === sortIdx && sortCtx.dragging !== sortIdx;
     return<div
-      onDragOver={e=>{if(depth===0){e.preventDefault();setDragOverTask(task.id);}}}
-      onDragLeave={()=>setDragOverTask(null)}
-      onDrop={()=>depth===0&&onTaskDrop(task.id,task.section||'')}
+      data-sortable-item
       style={{
-        opacity:dragTask===task.id?.3:1,
-        borderTop:depth===0&&dragOverTask===task.id&&dragTask!==task.id?'2px solid #3D7A5A':'2px solid transparent',
+        opacity: depth===0&&isDragging ? .3 : 1,
+        borderTop: depth===0&&isOver ? '2px solid #3D7A5A' : '2px solid transparent',
         transition:'border-color .1s,opacity .1s'
       }}>
       {/* Row */}
       <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'transparent'}}
         onClick={()=>setOID(task.id)}>
-        {depth===0&&<span
-          draggable
-          onDragStart={e=>{e.stopPropagation();setDragTask(task.id);}}
-          onDragEnd={()=>{setDragTask(null);setDragOverTask(null);}}
-          style={{color:'#B0B0B0',cursor:'grab',fontSize:14,userSelect:'none',flexShrink:0,
-            padding:'2px 5px',borderRadius:4,lineHeight:1,
-            background:dragTask===task.id?'#E8EDE9':'transparent',transition:'background .1s'}}
-          title="גרור לסדר מחדש"
+        {depth===0&&sortCtx&&<span
+          onMouseDown={e=>{e.stopPropagation();sortCtx.onHandleMouseDown(e,sortIdx,task.title);}}
+          style={{color:'#B0B0B0',cursor:'grab',fontSize:16,userSelect:'none',flexShrink:0,
+            padding:'3px 5px',borderRadius:4,lineHeight:1,
+            background:isDragging?'#E8EDE9':'transparent',transition:'background .1s'}}
+          title="גרור לשינוי סדר"
           onClick={e=>e.stopPropagation()}>⠿⠿</span>}
 
         {/* Expand arrow */}
@@ -1529,6 +1592,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
   return<div>
     {confirmModal}
+    <DragGhost ghost={secSort.ghost}/>
     {openTask&&<TaskModal task={openTask} allTasks={allTasks} allProjects={allProjs} partners={partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={jumpToTask} db={db}/>}
     <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
       <input value={newTitle} onChange={e=>setNT(e.target.value)}
@@ -1558,23 +1622,22 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           const depsMet=isSecDepsMet(sec);
           const hasDeps=(secDeps[sec]||[]).length>0;
           const otherSecs=sections.filter(s=>s&&s!==sec);
+          const secIdx = namedSections.indexOf(sec);
+          const isSecDragging = secSort.dragging === secIdx;
+          const isSecOver = secSort.over === secIdx && secSort.dragging !== secIdx;
           return<div
-            onDragOver={e=>{e.preventDefault();setDragOverSec(sec);}}
-            onDragLeave={()=>setDragOverSec(null)}
-            onDrop={()=>onSecDrop(sec)}
-            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,opacity:dragSec===sec?.35:1,
-              borderTop:dragOverSec===sec&&dragSec!==sec?'2px solid #3D7A5A':'2px solid transparent',
-              transition:'border-color .12s,opacity .12s'}}>
-            {/* Drag handle — only this triggers drag */}
+            data-sortable-item
+            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,
+              opacity:isSecDragging?.3:1,
+              borderTop:isSecOver?'2px solid #3D7A5A':'2px solid transparent',
+              transition:'border-color .1s,opacity .1s'}}>
+            {/* Drag handle */}
             <span
-              draggable
-              onDragStart={e=>{e.stopPropagation();setDragSec(sec);}}
-              onDragEnd={()=>{setDragSec(null);setDragOverSec(null);}}
-              style={{color:'#B0B0B0',cursor:'grab',fontSize:14,userSelect:'none',flexShrink:0,
-                padding:'2px 4px',borderRadius:4,lineHeight:1,
-                background:dragSec===sec?'#E8EDE9':'transparent',
-                transition:'background .1s'}}
-              title="גרור לסדר מחדש">⠿⠿</span>
+              onMouseDown={e=>secSort.onHandleMouseDown(e, secIdx, sec)}
+              style={{color:'#B0B0B0',cursor:'grab',fontSize:16,userSelect:'none',flexShrink:0,
+                padding:'3px 5px',borderRadius:4,lineHeight:1,
+                background:isSecDragging?'#E8EDE9':'transparent',transition:'background .1s'}}
+              title="גרור לשינוי סדר">⠿⠿</span>
             {/* Collapse arrow */}
             <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
 
@@ -1628,7 +1691,17 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
               const ia=order.indexOf(a.id);const ib=order.indexOf(b.id);
               if(ia===-1&&ib===-1)return 0;if(ia===-1)return 1;if(ib===-1)return-1;return ia-ib;
             });
-            return sorted.map(t=><TaskRow key={t.id} task={t} depth={0} secName={sec||''}/>);
+            // Create a sortable context for this section
+            const SectionTasks=()=>{
+              const sortCtx=useSortable(sorted,(reordered)=>{
+                const existingOrder=projData.task_order||{};
+                db.updProject(pid,{task_order:{...existingOrder,[sec||'__']:reordered.map(t=>t.id)}});
+              });
+              return<>{sortCtx.ghost&&<DragGhost ghost={sortCtx.ghost}/>}
+                {sorted.map((t,i)=><TaskRow key={t.id} task={t} depth={0} secName={sec||''} sortCtx={sortCtx} sortIdx={i}/>)}
+              </>;
+            };
+            return<SectionTasks/>;
           })()}
           {addingIn===sec
             ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid #F5F5F3'}}>

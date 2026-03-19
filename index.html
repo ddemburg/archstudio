@@ -223,6 +223,8 @@ async function sbEnsureMember(email, name, picture) {
 
 async function apiLoad() {
   if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
+  // Also try to get email from active session if still missing
+  if (!_sbUserEmail && _sbSession?.user?.email) { _sbUserEmail=_sbSession.user.email; }
   const member = await sbGetMember(_sbUserEmail);
   if (!member) throw new Error('Not a member');
   const rows = await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
@@ -443,6 +445,7 @@ function useApp(){
   const [driveLastSave,setDriveLastSave]=useState(null);
   const [driveError,setDriveError]=useState(null);
   const saveTimer=useRef(null);
+  const driveLoadRef=useRef(null);
 
   const driveLoad=async()=>{
     try{
@@ -490,6 +493,7 @@ function useApp(){
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
   };
+  driveLoadRef.current=driveLoad;
 
   const getState=()=>({projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads});
 
@@ -553,7 +557,7 @@ function useApp(){
   },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
 
   return {
-    driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
+    driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveLoadRef,driveSave,
     projects,tasks,docs,reqs,approvs,committees,partners,templates,officeMembers,
     addProject:p=>setP(ps=>[...ps,{...p,id:uid(),milestones:p.milestones||[]}]),
     updProject:(id,ch)=>setP(ps=>ps.map(p=>p.id===id?{...p,...ch}:p)),
@@ -3324,7 +3328,11 @@ function App(){
         // Try to restore Supabase session (handles URL hash + sessionStorage)
         const ok=await gTrySilentSignIn();
         if(!cancelled){
-          if(ok){ setLoggedIn(true); await db.driveLoad(); }
+          if(ok){
+            setLoggedIn(true);
+            // Use ref to avoid stale closure — always calls latest driveLoad
+            await db.driveLoadRef.current();
+          }
           setAutoLogging(false);
         }
       }catch(e){ if(!cancelled) setAutoLogging(false); }

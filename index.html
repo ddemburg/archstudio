@@ -7,7 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<!-- Google GSI not needed — using Supabase Auth -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -33,190 +33,46 @@ const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const fmtM=n=>n==null?'—':'₪'+Number(n).toLocaleString('he-IL',{maximumFractionDigits:0});
 const fmtD=s=>{if(!s)return'—';const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});};
 const uid=()=>Math.random().toString(36).slice(2,9);
-// ── Supabase Auth (Google OAuth via Supabase) ─────────────────────────────────
+// ── Supabase client (handles auth, PKCE, session refresh automatically) ──────
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-// Auth state
-let _sbSession   = null;   // full Supabase session object
-let _sbUserEmail = '';
-let _gAccessToken = '';    // kept for Google Drive backup only
+// ── Auth helpers (thin wrappers around sb.auth) ───────────────────────────────
+const gSignIn = () => sb.auth.signInWithOAuth({
+  provider: 'google',
+  options: { redirectTo: window.location.origin + window.location.pathname }
+});
 
-// ── Supabase Auth helpers ──────────────────────────────────────────────────────
+const gSignOut = () => sb.auth.signOut();
 
-function sbAuthHeaders(extra) {
-  const token = _sbSession?.access_token || SUPABASE_ANON;
+const gIsSignedIn = () => !!sb.auth.getUser();
+
+async function gTrySilentSignIn() {
+  // Supabase client handles PKCE code exchange + session restore automatically
+  const { data: { session } } = await sb.auth.getSession();
+  return !!session;
+}
+
+function getEmail() {
+  // Single source of truth for current user email
+  return sb.auth.getUser().then(({ data }) => data?.user?.email || '');
+}
+
+// ── Supabase REST helpers ─────────────────────────────────────────────────────
+// Cache the session token synchronously after login so REST calls can use it
+let _cachedToken = SUPABASE_ANON;
+sb.auth.onAuthStateChange((_event, session) => {
+  _cachedToken = session?.access_token || SUPABASE_ANON;
+});
+
+function sbHeaders(extra) {
   return {
     'apikey': SUPABASE_ANON,
-    'Authorization': 'Bearer ' + token,
+    'Authorization': 'Bearer ' + _cachedToken,
     'Content-Type': 'application/json',
     ...extra
   };
-}
-
-// ── PKCE helpers ─────────────────────────────────────────────────────────────
-function _generateVerifier() {
-  const arr = new Uint8Array(32);
-  crypto.getRandomValues(arr);
-  return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-}
-async function _generateChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-}
-
-// Sign in with Google via Supabase Auth — full PKCE flow
-async function gSignIn() {
-  const redirectTo = window.location.origin + window.location.pathname;
-  const verifier   = _generateVerifier();
-  const challenge  = await _generateChallenge(verifier);
-  // Store verifier in localStorage (survives redirect, unlike sessionStorage)
-  try { localStorage.setItem('arch_pkce_verifier', verifier); } catch(e) {}
-  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google` +
-    `&redirect_to=${encodeURIComponent(redirectTo)}` +
-    `&code_challenge=${encodeURIComponent(challenge)}` +
-    `&code_challenge_method=s256`;
-  return new Promise(()=>{});
-}
-
-// Get session from URL hash / PKCE code / sessionStorage
-async function gTrySilentSignIn() {
-  // 1. Check URL hash for implicit flow token (#access_token=...)
-  const hash = window.location.hash;
-  if (hash && hash.includes('access_token')) {
-    const params = new URLSearchParams(hash.substring(1));
-    const accessToken  = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    const expiresIn    = parseInt(params.get('expires_in') || '3600');
-    if (accessToken) {
-      const userResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + accessToken }
-      });
-      if (userResp.ok) {
-        const userData = await userResp.json();
-        _sbSession = {
-          access_token:  accessToken,
-          refresh_token: refreshToken,
-          expires_at:    Date.now() + expiresIn * 1000,
-          user:          userData
-        };
-        _sbUserEmail = userData.email || '';
-        try {
-          sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
-          sessionStorage.setItem('arch_email', _sbUserEmail);
-        } catch(e) {}
-        window.history.replaceState(null, '', window.location.pathname);
-        return true;
-      }
-    }
-  }
-
-  // 2. Check URL query params for PKCE flow (?code=...)
-  const search = window.location.search;
-  if (search && search.includes('code=')) {
-    const params = new URLSearchParams(search.substring(1));
-    const code = params.get('code');
-    if (code) {
-      try {
-        const verifier = localStorage.getItem('arch_pkce_verifier') || '';
-        const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
-          method: 'POST',
-          headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auth_code: code, code_verifier: verifier })
-        });
-        const data = await resp.json();
-        console.log('PKCE exchange response:', resp.status, data);
-        if (resp.ok && data.access_token) {
-          _sbSession = {
-            access_token:  data.access_token,
-            refresh_token: data.refresh_token || '',
-            expires_at:    Date.now() + (data.expires_in || 3600) * 1000,
-            user:          data.user
-          };
-          _sbUserEmail = data.user?.email || '';
-          try {
-            localStorage.removeItem('arch_pkce_verifier');
-            sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
-            sessionStorage.setItem('arch_email', _sbUserEmail);
-          } catch(e) {}
-          window.history.replaceState(null, '', window.location.pathname);
-          return true;
-        }
-      } catch(e) { console.warn('PKCE exchange failed:', e); }
-    }
-  }
-
-  // 3. Check sessionStorage for existing session
-  try {
-    const saved = sessionStorage.getItem('arch_session');
-    if (saved) {
-      const session = JSON.parse(saved);
-      if (session.expires_at > Date.now() + 60000) {
-        _sbSession   = session;
-        _sbUserEmail = session.user?.email || sessionStorage.getItem('arch_email') || '';
-        return true;
-      }
-      if (session.refresh_token) {
-        const refreshed = await _sbRefreshSession(session.refresh_token);
-        if (refreshed) return true;
-      }
-    }
-  } catch(e) {}
-
-  return false;
-}
-
-// Refresh session using refresh token
-async function _sbRefreshSession(refreshToken) {
-  try {
-    const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken })
-    });
-    if (!resp.ok) return false;
-    const data = await resp.json();
-    if (data.access_token) {
-      _sbSession = {
-        access_token:  data.access_token,
-        refresh_token: data.refresh_token || refreshToken,
-        expires_at:    Date.now() + (data.expires_in || 3600) * 1000,
-        user:          data.user
-      };
-      _sbUserEmail = data.user?.email || '';
-      sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
-      sessionStorage.setItem('arch_email', _sbUserEmail);
-      return true;
-    }
-  } catch(e) {}
-  return false;
-}
-
-// Sign out
-async function gSignOut() {
-  try {
-    if (_sbSession?.access_token) {
-      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
-        method: 'POST',
-        headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + _sbSession.access_token }
-      });
-    }
-  } catch(e) {}
-  _sbSession   = null;
-  _sbUserEmail = '';
-  sessionStorage.removeItem('arch_session');
-  sessionStorage.removeItem('arch_email');
-  sessionStorage.removeItem('arch_token');
-  localStorage.removeItem('arch_hint');
-}
-
-function gIsSignedIn() { return !!_sbSession; }
-
-// ── Supabase REST helpers (now use authenticated token) ───────────────────────
-
-function sbHeaders(extra) {
-  return sbAuthHeaders(extra);
 }
 
 async function sbQuery(path, options={}) {
@@ -239,11 +95,7 @@ async function sbGetMember(email) {
 
 async function sbEnsureMember(email, name, picture) {
   let member = await sbGetMember(email);
-  if (member) {
-    _sbUserEmail = email;
-    try { sessionStorage.setItem('arch_email', email); } catch(e) {}
-    return member;
-  }
+  if (member) return member;
   // First user — create office + member
   const officeRows = await sbQuery('offices', {
     method: 'POST',
@@ -262,17 +114,17 @@ async function sbEnsureMember(email, name, picture) {
     headers: sbHeaders({ 'Prefer': 'return=minimal' }),
     body: JSON.stringify({ office_id: office.id, email, name, picture, role: 'admin', active: true })
   });
-  member = await sbGetMember(email);
-  _sbUserEmail = email;
-  try { sessionStorage.setItem('arch_email', email); } catch(e) {}
-  return member;
+  return sbGetMember(email);
+}
+
+async function _getEmail() {
+  const { data } = await sb.auth.getUser();
+  return data?.user?.email || '';
 }
 
 async function apiLoad() {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  // Also try to get email from active session if still missing
-  if (!_sbUserEmail && _sbSession?.user?.email) { _sbUserEmail=_sbSession.user.email; }
-  const member = await sbGetMember(_sbUserEmail);
+  const email = await _getEmail();
+  const member = await sbGetMember(email);
   if (!member) throw new Error('Not a member');
   const rows = await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
   let data = rows?.[0]?.data || {};
@@ -291,8 +143,8 @@ async function apiLoad() {
 }
 
 async function apiSave(data) {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  const member = await sbGetMember(_sbUserEmail);
+  const email = await _getEmail();
+  const member = await sbGetMember(email);
   if (!member) throw new Error('Not a member');
   await sbQuery(`office_data?office_id=eq.${member.office_id}`, {
     method: 'PATCH',
@@ -302,15 +154,15 @@ async function apiSave(data) {
 }
 
 async function apiGetMembers() {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  const member = await sbGetMember(_sbUserEmail);
+  const email = await _getEmail();
+  const member = await sbGetMember(email);
   if (!member) return [];
   return sbQuery(`office_members?office_id=eq.${member.office_id}&active=eq.true&order=joined_at`);
 }
 
 async function apiAddMember(email, name, role, assignedProjects=[]) {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  const me = await sbGetMember(_sbUserEmail);
+  const myEmail = await _getEmail();
+  const me = await sbGetMember(myEmail);
   if (!me || me.role !== 'admin') throw new Error('Admins only');
   await sbQuery('office_members', {
     method: 'POST',
@@ -320,8 +172,8 @@ async function apiAddMember(email, name, role, assignedProjects=[]) {
 }
 
 async function apiUpdateMember(email, role, assignedProjects=[]) {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  const me = await sbGetMember(_sbUserEmail);
+  const myEmail = await _getEmail();
+  const me = await sbGetMember(myEmail);
   if (!me || me.role !== 'admin') throw new Error('Admins only');
   await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
     method: 'PATCH',
@@ -331,8 +183,8 @@ async function apiUpdateMember(email, role, assignedProjects=[]) {
 }
 
 async function apiRemoveMember(email) {
-  if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  const me = await sbGetMember(_sbUserEmail);
+  const myEmail = await _getEmail();
+  const me = await sbGetMember(myEmail);
   if (!me || me.role !== 'admin') throw new Error('Admins only');
   await sbQuery(`office_members?office_id=eq.${me.office_id}&email=eq.${encodeURIComponent(email)}`, {
     method: 'PATCH',
@@ -492,9 +344,8 @@ function useApp(){
   const [driveLastSave,setDriveLastSave]=useState(null);
   const [driveError,setDriveError]=useState(null);
   const saveTimer=useRef(null);
-  const driveLoadRef=useRef(null);
 
-  const driveLoad=async()=>{
+  const driveLoad=useCallback(async()=>{
     try{
       setDriveSyncing(true); setDriveError(null);
       const saved=await apiLoad();
@@ -539,13 +390,12 @@ function useApp(){
     }).catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
-  };
-  driveLoadRef.current=driveLoad;
+  },[]);
 
   const getState=()=>({projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads});
 
   const driveSave=async(state)=>{
-    if(!gIsSignedIn())return;
+    const {data:{session}}=await sb.auth.getSession();if(!session)return;
     setDriveSyncing(true);
     try{
       const s=state||getState();
@@ -558,31 +408,8 @@ function useApp(){
   };
 
   // ── Auto-backup to Google Drive (daily) ─────────────────────────────────
-  const autoBackup = async (state) => {
-    try {
-      const lastBackup = parseInt(localStorage.getItem('arch_last_backup') || '0');
-      if (Date.now() - lastBackup < 23 * 60 * 60 * 1000) return; // max once per 23h
-      if (!gIsSignedIn()) return;
-      const s = state || getState();
-      const blob = new Blob([JSON.stringify(s, null, 2)], {type: 'application/json'});
-      const token = _gAccessToken;
-      // Check for existing backup file
-      const listRes = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='archstudio-backup.json'&fields=files(id)", {
-        headers: {Authorization: 'Bearer ' + token}
-      });
-      const listData = await listRes.json();
-      const fileId = listData.files?.[0]?.id;
-      const meta = JSON.stringify({name: 'archstudio-backup.json', parents: fileId ? undefined : ['appDataFolder']});
-      const form = new FormData();
-      form.append('metadata', new Blob([meta], {type: 'application/json'}));
-      form.append('file', blob);
-      const url = fileId
-        ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&spaces=appDataFolder';
-      await fetch(url, {method: fileId ? 'PATCH' : 'POST', headers: {Authorization: 'Bearer ' + token}, body: form});
-      localStorage.setItem('arch_last_backup', Date.now().toString());
-      console.log('✅ Auto-backup to Google Drive complete');
-    } catch(e) { console.warn('Auto-backup failed:', e); }
+  const autoBackup = async () => {
+    // Auto-backup is manual download only (Google Drive API requires OAuth scope)
   };
 
   const manualBackup = () => {
@@ -604,7 +431,7 @@ function useApp(){
   },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
 
   return {
-    driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveLoadRef,driveSave,
+    driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
     projects,tasks,docs,reqs,approvs,committees,partners,templates,officeMembers,
     addProject:p=>setP(ps=>[...ps,{...p,id:uid(),milestones:p.milestones||[]}]),
     updProject:(id,ch)=>setP(ps=>ps.map(p=>p.id===id?{...p,...ch}:p)),
@@ -766,7 +593,8 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
   const remDep=id=>u('depends_on',(task.depends_on||[]).filter(d=>d!==id));
   const addNote=()=>{
     if(!noteText.trim())return;
-    const noteEmail=sessionStorage.getItem('arch_email')||'';
+    const { data: noteUser } = await sb.auth.getUser();
+    const noteEmail = noteUser?.user?.email || '';
     const notePartner=partners.find(p=>p.email===noteEmail);
     const noteMember=(db.officeMembers||[]).find(m=>m.email===noteEmail);
     const noteAuthorName=notePartner?.name||noteMember?.name||noteEmail||'—';
@@ -1236,7 +1064,8 @@ function PartnerChip({partner,style={}}){
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   // Logged wrappers — auto-record to project log
-  const loggedEmail=sessionStorage.getItem('arch_email')||'';
+  const [loggedEmail,setLoggedEmail]=useState('');
+  useEffect(()=>{ _getEmail().then(setLoggedEmail); },[]);
   const logUser=db.partners.find(p=>p.email===loggedEmail)?.name
     ||(db.officeMembers||[]).find(m=>m.email===loggedEmail)?.name
     ||loggedEmail||'—';
@@ -3148,7 +2977,7 @@ function AppSettingsPage({db}){
 
   useEffect(()=>{
     apiGetMembers().then(m=>{setMembers(m||[]);setLoadingMembers(false);}).catch(()=>setLoadingMembers(false));
-    sbGetMember(sessionStorage.getItem('arch_email')).then(setCurrentMember).catch(()=>{});
+    _getEmail().then(email=>sbGetMember(email)).then(setCurrentMember).catch(()=>{});
   },[]);
 
   const isAdmin=currentMember?.role==='admin';
@@ -3173,7 +3002,7 @@ function AppSettingsPage({db}){
     const admins=members.filter(m=>m.role==='admin');
     if(admins.length===1&&admins[0].email===email){alert('Cannot remove the last admin.');return;}
     // Prevent removing yourself
-    if(email===sessionStorage.getItem('arch_email')){alert('You cannot remove yourself.');return;}
+    const myEmail=await _getEmail();if(email===myEmail){alert('You cannot remove yourself.');return;}
     if(!window.confirm('להסיר את '+email+' מהמשרד?'))return;
     try{
       await apiRemoveMember(email);
@@ -3188,7 +3017,7 @@ function AppSettingsPage({db}){
       if(admins.length===1&&admins[0].email===email){alert('Cannot demote the last admin.');return;}
     }
     // Prevent demoting yourself
-    if(email===sessionStorage.getItem('arch_email')&&role!=='admin'){alert('You cannot change your own role.');return;}
+    const myEmail2=await _getEmail();if(email===myEmail2&&role!=='admin'){alert('You cannot change your own role.');return;}
     try{
       await apiUpdateMember(email,role,[]);
       setMembers(m=>m.map(x=>x.email===email?{...x,role}:x));
@@ -3222,13 +3051,13 @@ function AppSettingsPage({db}){
               <div style={{fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name||m.email}</div>
               <div style={{fontSize:11,color:'#8C8C8C',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email}</div>
             </div>
-            {isAdmin&&m.email!==sessionStorage.getItem('arch_email')
+            {isAdmin&&m.email!==loggedEmail
               ?<select value={m.role} onChange={e=>doChangeRole(m.email,e.target.value)}
                   style={{height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:12,color:ROLE_COLORS[m.role],fontFamily:'Heebo,sans-serif',background:'white'}}>
                   {Object.entries(ROLE_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
                 </select>
               :<span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,background:'#F0F0F0',color:ROLE_COLORS[m.role]}}>{ROLE_LABELS[m.role]||m.role}</span>}
-            {isAdmin&&m.email!==sessionStorage.getItem('arch_email')&&
+            {isAdmin&&m.email!==loggedEmail&&
               <button onClick={()=>doRemove(m.email)} style={{background:'none',border:'none',cursor:'pointer',color:'#DC2626',fontSize:16,padding:4,lineHeight:1}} title="הסר מהמשרד">✕</button>}
           </div>
         ))}
@@ -3274,7 +3103,7 @@ function AppSettingsPage({db}){
     <div style={{background:'white',border:'1px solid #FECACA',borderRadius:12,padding:20,marginBottom:16}}>
       <div style={{fontSize:14,fontWeight:600,marginBottom:4,color:'#DC2626'}}>יציאה מהמערכת</div>
       <p style={{fontSize:13,color:'#8C8C8C',marginBottom:14}}>התנתק מהחשבון הנוכחי</p>
-      <button onClick={()=>gSignOut().then(()=>window.location.reload())} style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 20px',fontSize:13,fontWeight:600,color:'#DC2626',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>התנתק</button>
+      <button onClick={async()=>{await gSignOut();window.location.reload();}} style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 20px',fontSize:13,fontWeight:600,color:'#DC2626',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>התנתק</button>
     </div>
 
     <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:16}}>
@@ -3354,10 +3183,10 @@ function App(){
   const [showNew,setShowNew]=useState(false);
   const [portalPid,setPortalPid]=useState(null);
   // currentUser is derived from logged-in Google email — no manual selection needed
-  const loggedEmail = sessionStorage.getItem('arch_email')||'';
+  const [loggedEmail,setLoggedEmail]=useState('');
+  useEffect(()=>{ sb.auth.getUser().then(({data})=>setLoggedEmail(data?.user?.email||'')); },[]);
   const currentUser = db.partners.find(p=>p.email===loggedEmail) || db.partners[0];
-  const currentUserId = currentUser?.id||'';
-  const setCurrentUserId = ()=>{}; // no-op, kept for prop compatibility
+
   const [preTpl,setPreTpl]=useState('');
   const [sbFilter,setSBF]=useState('all:All');
   const proj=db.projects.find(p=>p.id===pid);
@@ -3367,26 +3196,17 @@ function App(){
   // Try silent login on first render
   useEffect(()=>{
     let cancelled=false;
-    const tryAuto=async()=>{
+    (async()=>{
       try{
-        // Small delay to ensure sessionStorage is readable and React is mounted
-        await new Promise(r=>setTimeout(r,100));
-        if(cancelled) return;
-        // Try to restore Supabase session (handles URL hash + sessionStorage)
-        const ok=await gTrySilentSignIn();
+        const ok = await gTrySilentSignIn();
         if(!cancelled){
-          if(ok){
-            setLoggedIn(true);
-            // Use ref to avoid stale closure — always calls latest driveLoad
-            await db.driveLoadRef.current();
-          }
+          if(ok){ setLoggedIn(true); await db.driveLoad(); }
           setAutoLogging(false);
         }
       }catch(e){ if(!cancelled) setAutoLogging(false); }
-    };
-    tryAuto();
+    })();
     return()=>{cancelled=true;};
-  },[]);
+  },[db.driveLoad]);
 
   const handleLogin=async()=>{
     setLoggedIn(true);
@@ -3490,9 +3310,7 @@ function App(){
         <div style={{width:30,height:30,borderRadius:'50%',background:currentUser?.color||'#4a7c5e',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:600,fontSize:13,flexShrink:0,cursor:'pointer'}} onClick={()=>navTo('appsettings',null)}>{currentUser?.name?.[0]||'א'}</div>
         <div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{currentUser?.name||loggedEmail||'מנהל'}</div><div style={{fontSize:11,color:'#8C8C8C'}}>{currentUser?.role||''} • {db.partners.length} בצוות</div></div>
         <button onClick={()=>navTo('appsettings',null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"rgba(255,255,255,.3)",padding:2,transition:"color .15s"}} onMouseOver={e=>e.target.style.color="rgba(255,255,255,.8)"} onMouseOut={e=>e.target.style.color="rgba(255,255,255,.3)"} title="הגדרות">⚙️</button>
-        <button onClick={()=>{
-          gSignOut().then(()=>window.location.reload());
-        }} style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:6,cursor:"pointer",fontSize:11,color:"rgba(255,255,255,.4)",padding:"3px 8px",transition:"all .15s",fontFamily:"Heebo,sans-serif"}} onMouseOver={e=>{e.currentTarget.style.color="white";e.currentTarget.style.borderColor="rgba(255,100,100,.6)";e.currentTarget.style.background="rgba(255,100,100,.15)"}} onMouseOut={e=>{e.currentTarget.style.color="rgba(255,255,255,.4)";e.currentTarget.style.borderColor="rgba(255,255,255,.15)";e.currentTarget.style.background="none"}} title="התנתק">יציאה</button>
+        <button onClick={async()=>{await gSignOut();window.location.reload();}} style={{background:"none",border:"1px solid rgba(255,255,255,.15)",borderRadius:6,cursor:"pointer",fontSize:11,color:"rgba(255,255,255,.4)",padding:"3px 8px",transition:"all .15s",fontFamily:"Heebo,sans-serif"}} onMouseOver={e=>{e.currentTarget.style.color="white";e.currentTarget.style.borderColor="rgba(255,100,100,.6)";e.currentTarget.style.background="rgba(255,100,100,.15)"}} onMouseOut={e=>{e.currentTarget.style.color="rgba(255,255,255,.4)";e.currentTarget.style.borderColor="rgba(255,255,255,.15)";e.currentTarget.style.background="none"}} title="התנתק">יציאה</button>
       </div>
     </aside>
 

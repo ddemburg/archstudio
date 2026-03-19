@@ -1226,7 +1226,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   const logDelTask=(id)=>{
     const t=allTasks.find(x=>x.id===id);
     if(t) db.addLog(pid,{user:logUser,action:'delete',taskTitle:t.title});
-    logDelTask(id);
+    db.delTask(id);
   };
 
   const [newTitle,setNT]=useState('');
@@ -2211,15 +2211,25 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
 }
 
 // ─── All Tasks Page ───────────────────────────────────────────────────────────
-function AllTasksPage({db,nav}){
+function AllTasksPage({db,nav,activeFilter}){
   const [fp,setFP]=useState('all');const [oid,setOID]=useState(null);
-  const tasks=fp==='all'?db.tasks:db.tasks.filter(t=>t.project_id===fp);
+  const baseTasks=fp==='all'?db.tasks:db.tasks.filter(t=>t.project_id===fp);
+  const tasks=activeFilter?baseTasks.filter(t=>{
+    if(activeFilter.assignee&&t.assignee_id!==activeFilter.assignee)return false;
+    if(activeFilter.status&&t.status!==activeFilter.status)return false;
+    if(activeFilter.priority&&t.priority!==activeFilter.priority)return false;
+    if(activeFilter.project&&t.project_id!==activeFilter.project)return false;
+    return true;
+  }):baseTasks;
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
-    <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
-    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:3}}>
+      <h1 style={{fontSize:26,fontWeight:600}}>{activeFilter?activeFilter.icon+' '+activeFilter.name:'כל המשימות'}</h1>
+      {activeFilter&&<span style={{fontSize:12,color:'#3D7A5A',background:'#E8EDE9',padding:'3px 10px',borderRadius:999,fontWeight:600}}>פילטר פעיל</span>}
+    </div>
+    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>{activeFilter?tasks.length+' משימות מתאימות':'מבט כולל על כל הפרויקטים'}</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
       {[{id:'all',name:'הכל'},...db.projects].map(p=><button key={p.id} onClick={()=>setFP(p.id)} style={{height:32,padding:'0 10px',borderRadius:7,fontSize:12,fontWeight:500,border:fp===p.id?'none':'1px solid #E8E6E1',background:fp===p.id?'#1A1A1A':'white',color:fp===p.id?'white':'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>{p.name}</button>)}
     </div>
@@ -3406,8 +3416,17 @@ function MobileTaskSheet({task,allTasks,partners,db,onClose}){
     {id:'In Progress',label:'בתהליך',bg:'#FFFBEB',col:'#B45309',activeBg:'#F59E0B',activeCol:'white'},
     {id:'Done',label:'הושלם',bg:'#ECFDF5',col:'#065F46',activeBg:'#3D7A5A',activeCol:'white'},
   ];
+  const [newSub,setNewSub]=useState('');
+  const addSub=()=>{if(!newSub.trim())return;db.addTask({project_id:task.project_id,title:newSub.trim(),section:task.section||'',status:'To Do',priority:'Medium',parent_task_id:task.id,depends_on:[],notes:[],description:''});setNewSub('');};
   return<BottomSheet open onClose={onClose}>
-    <div style={{fontSize:17,fontWeight:700,marginBottom:12,lineHeight:1.4}}>{task.title}</div>
+    {/* Title + delete */}
+    <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12,gap:8}}>
+      <div style={{fontSize:17,fontWeight:700,lineHeight:1.4,flex:1}}>{task.title}</div>
+      <button onClick={()=>{db.delTask(task.id);onClose();}}
+        style={{background:'#FEF2F2',border:'none',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:13,color:'#DC2626',flexShrink:0}}>
+        🗑 מחק
+      </button>
+    </div>
     {/* Status buttons */}
     <div style={{display:'flex',gap:8,marginBottom:16}}>
       {ST.map(s=>{const isA=task.status===s.id;return<button key={s.id} onClick={()=>db.updTask(task.id,{status:s.id})}
@@ -3423,7 +3442,7 @@ function MobileTaskSheet({task,allTasks,partners,db,onClose}){
       {task.section&&<div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span style={{color:'#8C8C8C'}}>קטגוריה</span><span style={{fontWeight:500}}>{task.section}</span></div>}
     </div>
     {/* Subtasks */}
-    {children.length>0&&<div style={{marginBottom:16}}>
+    <div style={{marginBottom:16}}>
       <div style={{fontSize:12,fontWeight:700,color:'#8C8C8C',textTransform:'uppercase',marginBottom:8}}>תתי-משימות</div>
       {children.map(c=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid #F5F5F3'}}>
         <div onClick={()=>db.updTask(c.id,{status:c.status==='Done'?'To Do':'Done'})}
@@ -3431,9 +3450,17 @@ function MobileTaskSheet({task,allTasks,partners,db,onClose}){
             background:c.status==='Done'?'#3D7A5A':'white',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
           {c.status==='Done'&&<span style={{color:'white',fontSize:10,fontWeight:700}}>✓</span>}
         </div>
-        <span style={{fontSize:13,color:c.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:c.status==='Done'?'line-through':''}}>{c.title}</span>
+        <span style={{flex:1,fontSize:13,color:c.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:c.status==='Done'?'line-through':''}}>{c.title}</span>
+        <button onClick={()=>db.delTask(c.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14,padding:'0 4px'}}>🗑</button>
       </div>)}
-    </div>}
+      {/* Add subtask */}
+      <div style={{display:'flex',gap:6,marginTop:8}}>
+        <input value={newSub} onChange={e=>setNewSub(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addSub()}
+          placeholder="+ הוסף תת-משימה..."
+          style={{flex:1,height:36,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
+        {newSub.trim()&&<button onClick={addSub} style={{height:36,padding:'0 12px',background:'#3D7A5A',color:'white',border:'none',borderRadius:8,fontSize:13,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>הוסף</button>}
+      </div>
+    </div>
     {/* Notes */}
     {(task.notes||[]).length>0&&<div style={{marginBottom:12}}>
       {(task.notes||[]).map(n=><div key={n.id} style={{background:'#F7F6F3',borderRadius:8,padding:'8px 10px',marginBottom:6}}>
@@ -3457,6 +3484,8 @@ function MobileProject({project,db,onBack}){
   const [openTask,setOpenTask]=useState(null);
   const [showAddTask,setShowAddTask]=useState(false);
   const [newTaskTitle,setNewTaskTitle]=useState('');
+  const [newTaskSection,setNewTaskSection]=useState('');
+  const [newTaskParent,setNewTaskParent]=useState('');
   const myTasks=db.tasks.filter(t=>t.project_id===project.id&&!t.parent_task_id);
   const sections=[...new Set(myTasks.map(t=>t.section||''))];
   const ms=project.milestones||[];
@@ -3465,8 +3494,8 @@ function MobileProject({project,db,onBack}){
 
   const addTask=()=>{
     if(!newTaskTitle.trim())return;
-    db.addTask({project_id:project.id,title:newTaskTitle.trim(),section:'',status:'To Do',priority:'Medium',parent_task_id:null,depends_on:[],notes:[],description:''});
-    setNewTaskTitle('');setShowAddTask(false);
+    db.addTask({project_id:project.id,title:newTaskTitle.trim(),section:newTaskSection||'',status:'To Do',priority:'Medium',parent_task_id:newTaskParent||null,depends_on:[],notes:[],description:''});
+    setNewTaskTitle('');setNewTaskSection('');setNewTaskParent('');setShowAddTask(false);
   };
 
   // Camera/file upload for docs
@@ -3614,7 +3643,20 @@ function MobileProject({project,db,onBack}){
       <input autoFocus value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)}
         onKeyDown={e=>e.key==='Enter'&&addTask()}
         placeholder="שם המשימה..."
-        style={{width:'100%',height:48,padding:'0 14px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:16,fontFamily:'Heebo,sans-serif',marginBottom:12}}/>
+        style={{width:'100%',height:48,padding:'0 14px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:16,fontFamily:'Heebo,sans-serif',marginBottom:10}}/>
+      {/* Category */}
+      <select value={newTaskSection} onChange={e=>{if(e.target.value==='__new__'){const n=window.prompt('שם קטגוריה:');if(n?.trim())setNewTaskSection(n.trim());}else setNewTaskSection(e.target.value);}}
+        style={{width:'100%',height:44,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:14,background:'white',fontFamily:'Heebo,sans-serif',marginBottom:10}}>
+        <option value="">ללא קטגוריה</option>
+        {sections.filter(s=>s).map(s=><option key={s} value={s}>{s}</option>)}
+        <option value="__new__">+ קטגוריה חדשה...</option>
+      </select>
+      {/* Parent task (optional) */}
+      <select value={newTaskParent} onChange={e=>setNewTaskParent(e.target.value)}
+        style={{width:'100%',height:44,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:14,background:'white',fontFamily:'Heebo,sans-serif',marginBottom:12}}>
+        <option value="">משימה עצמאית</option>
+        {myTasks.map(t=><option key={t.id} value={t.id}>↳ {t.title}</option>)}
+      </select>
       <button onClick={addTask} disabled={!newTaskTitle.trim()}
         style={{width:'100%',height:48,background:'#3D7A5A',color:'white',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:'Heebo,sans-serif',opacity:newTaskTitle.trim()?1:.5}}>
         הוסף משימה
@@ -3722,6 +3764,67 @@ function MobileApp({db,currentUser,loggedEmail}){
   </div>;
 }
 
+
+// ─── Task Filter Editor Modal ─────────────────────────────────────────────────
+function FilterEditorModal({db,partners,currentUser,loggedEmail,onSave,onClose}){
+  const [name,setName]=useState('');
+  const [icon,setIcon]=useState('☑️');
+  const [assignee,setAssignee]=useState('__me__');
+  const [status,setStatus]=useState('');
+  const [priority,setPriority]=useState('');
+  const [project,setProject]=useState('');
+  const ICONS=['☑️','⚡','🔴','🟡','🟢','👤','📁','🎯','🔧','📋'];
+  const save=()=>{
+    if(!name.trim())return;
+    const resolvedAssignee=assignee==='__me__'
+      ?(partners.find(p=>p.email===loggedEmail)||partners[0])?.id||''
+      :assignee;
+    onSave({name:name.trim(),icon,assignee:resolvedAssignee,status,priority,project});
+  };
+  return<Modal open onClose={onClose} title="פילטר חדש">
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {/* Icon picker */}
+      <div>
+        <span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:6}}>אייקון</span>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {ICONS.map(ic=><button key={ic} onClick={()=>setIcon(ic)}
+            style={{width:36,height:36,borderRadius:8,border:'2px solid '+(icon===ic?'#3D7A5A':'#E8E6E1'),
+              background:icon===ic?'#E8EDE9':'white',cursor:'pointer',fontSize:18}}>
+            {ic}
+          </button>)}
+        </div>
+      </div>
+      <I label="שם הפילטר" value={name} onChange={e=>setName(e.target.value)} placeholder='למשל: המשימות שלי, דחוף, בתהליך...'/>
+      <SE label="אחראי" value={assignee} onChange={e=>setAssignee(e.target.value)}>
+        <option value="">כל האחראים</option>
+        <option value="__me__">אני</option>
+        {partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </SE>
+      <SE label="סטטוס" value={status} onChange={e=>setStatus(e.target.value)}>
+        <option value="">כל הסטטוסים</option>
+        <option value="To Do">להתחלה</option>
+        <option value="In Progress">בתהליך</option>
+        <option value="Done">הושלם</option>
+        <option value="Blocked">חסום</option>
+      </SE>
+      <SE label="עדיפות" value={priority} onChange={e=>setPriority(e.target.value)}>
+        <option value="">כל העדיפויות</option>
+        <option value="High">גבוהה</option>
+        <option value="Medium">בינונית</option>
+        <option value="Low">נמוכה</option>
+      </SE>
+      <SE label="פרויקט" value={project} onChange={e=>setProject(e.target.value)}>
+        <option value="">כל הפרויקטים</option>
+        {db.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </SE>
+      <div style={{display:'flex',gap:8,paddingTop:4}}>
+        <Btn onClick={save} disabled={!name.trim()} sx={{flex:1}}>שמור פילטר</Btn>
+        <Btn v="ghost" onClick={onClose}>ביטול</Btn>
+      </div>
+    </div>
+  </Modal>;
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function DriveBanner({db}){
   const fmt=d=>{if(!d)return'';const dt=new Date(d);return dt.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});};
@@ -3791,6 +3894,10 @@ function App(){
   const setCurrentUserId = ()=>{}; // no-op, kept for prop compatibility
   const [preTpl,setPreTpl]=useState('');
   const [sbFilter,setSBF]=useState('all:All');
+  const [taskFilters,setTaskFilters]=useState(()=>{try{return JSON.parse(localStorage.getItem('arch_task_filters')||'[]');}catch{return[];}});
+  const [activeTaskFilter,setActiveTaskFilter]=useState(null);
+  const [showFilterEditor,setShowFilterEditor]=useState(false);
+  const saveTaskFilters=f=>{setTaskFilters(f);try{localStorage.setItem('arch_task_filters',JSON.stringify(f));}catch{}};
   const proj=db.projects.find(p=>p.id===pid);
   const [loggedIn,setLoggedIn]=useState(false);
   const [autoLogging,setAutoLogging]=useState(true);
@@ -3905,6 +4012,30 @@ function App(){
         </button>)}
       </div>
 
+      {/* Task Filters */}
+      <div style={{padding:"8px 10px",borderBottom:"1px solid rgba(255,255,255,.08)",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.3)",textTransform:"uppercase",letterSpacing:".1em"}}>פילטרי משימות</div>
+          <button onClick={()=>setShowFilterEditor(true)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.3)",fontSize:16,lineHeight:1,padding:2}} title="הוסף פילטר">+</button>
+        </div>
+        {taskFilters.map(f=><button key={f.id}
+          onClick={()=>{setActiveTaskFilter(activeTaskFilter===f.id?null:f.id);navTo('tasks',null);}}
+          style={{width:"100%",textAlign:"right",padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,
+            background:activeTaskFilter===f.id?"rgba(61,122,90,.35)":"transparent",
+            color:activeTaskFilter===f.id?"#A8D5BA":"rgba(255,255,255,.5)",
+            fontFamily:"Heebo,sans-serif",marginBottom:2,display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{f.icon} {f.name}</span>
+          <span onClick={e=>{e.stopPropagation();saveTaskFilters(taskFilters.filter(x=>x.id!==f.id));if(activeTaskFilter===f.id)setActiveTaskFilter(null);}}
+            style={{color:"rgba(255,255,255,.2)",fontSize:13,flexShrink:0,lineHeight:1}} title="מחק פילטר">×</span>
+        </button>)}
+        {taskFilters.length===0&&<div style={{fontSize:11,color:"rgba(255,255,255,.2)",padding:"4px 2px",fontStyle:"italic"}}>לחץ + להוסיף פילטר</div>}
+      </div>
+
+      {/* Filter editor modal */}
+      {showFilterEditor&&<FilterEditorModal db={db} partners={db.partners} currentUser={currentUser} loggedEmail={loggedEmail}
+        onSave={f=>{saveTaskFilters([...taskFilters,{...f,id:uid()}]);setShowFilterEditor(false);}}
+        onClose={()=>setShowFilterEditor(false)}/>}
+
       <div style={{padding:"8px 8px",flexShrink:0}}>
         <button onClick={()=>setShowNew(true)} style={{width:"100%",textAlign:"right",display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,border:"1px dashed rgba(255,255,255,.2)",cursor:"pointer",fontSize:12,color:"rgba(255,255,255,.4)",background:"transparent",fontFamily:"Heebo,sans-serif",transition:"all .12s"}}>
           <span>+</span> פרויקט חדש
@@ -3926,7 +4057,7 @@ function App(){
       <div className="fade" key={page+pid}>
         {page==='dashboard'  && <Dashboard db={db} nav={nav} onNew={()=>setShowNew(true)} onOpen={openProj} setPortalPid={setPortalPid}/>}
         {page==='project'    && proj && <ProjectDetail project={proj} db={db} onBack={()=>{setPage('dashboard');setPID(null);}} currentUser={currentUser} onOpenPortal={()=>setPortalPid(proj.id)} nav={nav}/>}
-        {page==='tasks'      && <AllTasksPage db={db} nav={nav}/>}
+        {page==='tasks'      && <AllTasksPage db={db} nav={nav} activeFilter={activeTaskFilter?taskFilters.find(f=>f.id===activeTaskFilter):null}/>}
         {page==='leads'      && <LeadsPage db={db} nav={nav}/>}
         {page==='crm'        && <CRMPage db={db} nav={nav} currentUser={currentUser}/>}
         {page==='reports'     && <ReportsPage db={db} nav={nav}/>}

@@ -705,48 +705,49 @@ function Modal({open,onClose,title,children,wide,xl}){
 // SORTABLE — smooth drag-to-reorder using pointer events
 // ═══════════════════════════════════════════════════════════════════════════
 function useSortable(items, onReorder) {
-  const [dragging, setDragging] = useState(null);   // index being dragged
-  const [over, setOver] = useState(null);            // index being hovered
-  const [ghost, setGhost] = useState(null);          // {x,y,w,h,label}
-  const startY = useRef(0);
-  const startX = useRef(0);
+  // dragging = index of item being dragged
+  // insertAt = insert position (0..n), shown as line AFTER item[insertAt-1]
+  const [dragging, setDragging] = useState(null);
+  const [insertAt, setInsertAt] = useState(null);
+  const [ghost, setGhost] = useState(null);
+  const groupKey = useRef(Math.random().toString(36).slice(2)); // unique per instance
 
   const onHandleMouseDown = (e, index, label) => {
     e.preventDefault();
     e.stopPropagation();
-    const rect = e.currentTarget.closest('[data-sortable-item]')?.getBoundingClientRect();
-    startY.current = e.clientY;
-    startX.current = e.clientX;
+    const key = groupKey.current;
     setDragging(index);
-    setOver(index);
-    setGhost({
-      x: e.clientX - 20,
-      y: e.clientY - 12,
-      w: rect ? rect.width : 200,
-      label,
-    });
+    setInsertAt(index);
+    setGhost({ x: e.clientX, y: e.clientY, label });
 
     const onMove = (me) => {
-      setGhost(g => g ? ({ ...g, x: me.clientX - 20, y: me.clientY - 12 }) : null);
-      // Find which item we're over by checking all sortable items
-      const els = document.querySelectorAll('[data-sortable-item]');
-      let found = null;
+      setGhost(g => g ? ({ ...g, x: me.clientX, y: me.clientY }) : null);
+
+      // Find insert position based on cursor vs midpoints of items
+      const els = document.querySelectorAll('[data-sortable-key="' + key + '"]');
+      let pos = 0;
       els.forEach((el, i) => {
         const r = el.getBoundingClientRect();
-        if (me.clientY >= r.top && me.clientY <= r.bottom) found = i;
+        const mid = r.top + r.height / 2;
+        if (me.clientY > mid) pos = i + 1;
       });
-      if (found !== null) setOver(found);
+      setInsertAt(pos);
     };
 
     const onUp = () => {
       setGhost(null);
-      setOver(prev => {
+      setInsertAt(prev => {
         setDragging(di => {
-          if (di !== null && prev !== null && di !== prev) {
-            const next = [...items];
-            const [removed] = next.splice(di, 1);
-            next.splice(prev, 0, removed);
-            onReorder(next);
+          if (di !== null && prev !== null) {
+            // Convert insert position to final index
+            let to = prev;
+            if (to > di) to -= 1; // account for removal
+            if (to !== di) {
+              const next = [...items];
+              const [removed] = next.splice(di, 1);
+              next.splice(to, 0, removed);
+              onReorder(next);
+            }
           }
           return null;
         });
@@ -760,23 +761,46 @@ function useSortable(items, onReorder) {
     window.addEventListener('mouseup', onUp);
   };
 
-  return { dragging, over, ghost, onHandleMouseDown };
+  // showLineAfter(i) — true if the drop line should appear after item i
+  const showLineAfter = (i) => {
+    if (dragging === null || insertAt === null) return false;
+    // Normalize: don't show line adjacent to the dragged item itself
+    const effectiveInsert = insertAt;
+    return effectiveInsert === i + 1 && dragging !== i && dragging !== i + 1;
+  };
+  const showLineBefore = (i) => {
+    if (dragging === null || insertAt === null) return false;
+    return insertAt === i && dragging !== i && dragging !== i - 1;
+  };
+
+  return { dragging, insertAt, ghost, onHandleMouseDown, showLineAfter, showLineBefore, groupKey: groupKey.current };
 }
 
-// Ghost element that follows the mouse
+// Ghost: small pill that follows the cursor tightly
 function DragGhost({ ghost }) {
   if (!ghost) return null;
   return ReactDOM.createPortal(
     <div style={{
-      position: 'fixed', left: ghost.x, top: ghost.y, zIndex: 9999,
-      background: 'white', border: '2px solid #3D7A5A', borderRadius: 8,
-      padding: '6px 14px', fontSize: 13, fontWeight: 600,
-      boxShadow: '0 8px 24px rgba(0,0,0,.18)', pointerEvents: 'none',
-      maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      color: '#1A1A1A', fontFamily: 'Heebo,sans-serif',
-      transform: 'rotate(-1.5deg)',
+      position: 'fixed',
+      left: ghost.x + 14,
+      top: ghost.y - 10,
+      zIndex: 9999,
+      background: '#1C1C1E',
+      color: 'white',
+      borderRadius: 7,
+      padding: '5px 12px',
+      fontSize: 12,
+      fontWeight: 600,
+      boxShadow: '0 4px 16px rgba(0,0,0,.28)',
+      pointerEvents: 'none',
+      maxWidth: 220,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      fontFamily: 'Heebo,sans-serif',
+      userSelect: 'none',
     }}>
-      ⠿ {ghost.label}
+      ↕ {ghost.label}
     </div>,
     document.body
   );
@@ -1469,13 +1493,13 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     const indent=depth*18;
 
     const isDragging = sortCtx && sortCtx.dragging === sortIdx;
-    const isOver = sortCtx && sortCtx.over === sortIdx && sortCtx.dragging !== sortIdx;
     return<div
-      data-sortable-item
+      data-sortable-key={sortCtx?.groupKey}
       style={{
         opacity: depth===0&&isDragging ? .3 : 1,
-        borderTop: depth===0&&isOver ? '2px solid #3D7A5A' : '2px solid transparent',
-        transition:'border-color .1s,opacity .1s'
+        borderTop: depth===0&&sortCtx?.showLineBefore(sortIdx) ? '2.5px solid #3D7A5A' : depth===0?'2.5px solid transparent':undefined,
+        borderBottom: depth===0&&sortCtx?.showLineAfter(sortIdx) ? '2.5px solid #3D7A5A' : depth===0?'2.5px solid transparent':undefined,
+        transition:'border-color .08s,opacity .1s'
       }}>
       {/* Row */}
       <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'transparent'}}
@@ -1624,13 +1648,15 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           const otherSecs=sections.filter(s=>s&&s!==sec);
           const secIdx = namedSections.indexOf(sec);
           const isSecDragging = secSort.dragging === secIdx;
-          const isSecOver = secSort.over === secIdx && secSort.dragging !== secIdx;
           return<div
-            data-sortable-item
-            style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,
+            data-sortable-key={secSort.groupKey}
+            style={{display:'flex',alignItems:'center',gap:6,marginBottom:0,
               opacity:isSecDragging?.3:1,
-              borderTop:isSecOver?'2px solid #3D7A5A':'2px solid transparent',
-              transition:'border-color .1s,opacity .1s'}}>
+              paddingTop: secSort.showLineBefore(secIdx) ? 0 : 0,
+              borderTop: secSort.showLineBefore(secIdx) ? '2.5px solid #3D7A5A' : '2.5px solid transparent',
+              borderBottom: secSort.showLineAfter(secIdx) ? '2.5px solid #3D7A5A' : '2.5px solid transparent',
+              marginBottom: 6,
+              transition:'border-color .08s,opacity .1s'}}>
             {/* Drag handle */}
             <span
               onMouseDown={e=>secSort.onHandleMouseDown(e, secIdx, sec)}

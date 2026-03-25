@@ -62,19 +62,31 @@ async function gSignIn() {
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/calendar.events',
   ].join(' ');
-  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}&scopes=${encodeURIComponent(scopes)}`;
+  // Use implicit flow — tokens come back in URL hash
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}&scopes=${encodeURIComponent(scopes)}&response_type=token`;
   return new Promise(()=>{});
 }
 
 // Get session from URL hash (after OAuth redirect) or from localStorage
 async function gTrySilentSignIn() {
-  // 1. Check URL hash for new session (after redirect from Google)
-  // IMPORTANT: Save hash immediately — GitHub Pages may reload and lose it
-  const hash = window.location.hash || sessionStorage.getItem('arch_pending_hash') || '';
+  // 1. Check BOTH hash and search params — GitHub Pages sometimes moves hash to search
+  const rawHash = window.location.hash || '';
+  const rawSearch = window.location.search || '';
+
+  // Save immediately before anything clears them
+  if (rawHash && rawHash.includes('access_token')) {
+    try { sessionStorage.setItem('arch_pending_hash', rawHash); } catch(e) {}
+  }
+  if (rawSearch && rawSearch.includes('access_token')) {
+    try { sessionStorage.setItem('arch_pending_hash', rawSearch); } catch(e) {}
+  }
+
+  const pending = sessionStorage.getItem('arch_pending_hash') || rawHash || rawSearch || '';
+  const hash = pending.includes('access_token') ? pending : '';
+
   if (hash && hash.includes('access_token')) {
-    // Store it in case of page reload before we finish processing
-    try { sessionStorage.setItem('arch_pending_hash', hash); } catch(e) {}
-    const params = new URLSearchParams(hash.substring(1));
+    const clean = hash.startsWith('#') || hash.startsWith('?') ? hash.substring(1) : hash;
+    const params = new URLSearchParams(clean);
     const accessToken  = params.get('access_token');
     const refreshToken = params.get('refresh_token');
     const expiresIn    = parseInt(params.get('expires_in') || '3600');
@@ -102,9 +114,9 @@ async function gTrySilentSignIn() {
         try {
           sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
           sessionStorage.setItem('arch_email', _sbUserEmail);
-          sessionStorage.removeItem('arch_pending_hash'); // clean up
+          sessionStorage.removeItem('arch_pending_hash');
         } catch(e) {}
-        // Clean URL hash
+        // Clean URL
         window.history.replaceState(null, '', window.location.pathname);
         return true;
       }

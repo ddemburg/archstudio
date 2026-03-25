@@ -20,25 +20,6 @@
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:#D1CBC1;border-radius:10px}
-  /* Mobile */
-  @media(max-width:767px){
-    body{padding:0!important}
-  }
-  .mobile-card{background:white;border-radius:14px;border:1px solid #E8E6E1;padding:14px 16px;margin-bottom:10px;transition:all .15s}
-  .mobile-card:active{transform:scale(.98);opacity:.9}
-  .tab-bar{position:fixed;bottom:0;left:0;right:0;height:64px;background:white;border-top:1px solid #E8E6E1;display:flex;align-items:center;justify-content:space-around;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
-  .tab-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 16px;border:none;background:none;cursor:pointer;font-family:Heebo,sans-serif;color:#9C9C9C;font-size:10px;font-weight:500;min-width:56px}
-  .tab-btn.active{color:#3D7A5A}
-  .tab-btn .icon{font-size:22px;line-height:1}
-  .mobile-header{position:sticky;top:0;z-index:50;background:white;border-bottom:1px solid #E8E6E1;padding:12px 16px;display:flex;align-items:center;gap:10px}
-  .task-row-mobile{display:flex;align-items:center;gap:10px;padding:12px 16px;background:white;border-bottom:1px solid #F5F5F3;min-height:56px}
-  .status-pill{height:28px;padding:0 12px;border-radius:999px;border:none;font-family:Heebo,sans-serif;font-size:12px;font-weight:600;cursor:pointer}
-  .mobile-fab{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:56px;height:56px;border-radius:50%;background:#3D7A5A;color:white;border:none;cursor:pointer;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(61,122,90,.4);z-index:99}
-  .sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;flex-direction:column;justify-content:flex-end}
-  .sheet{background:white;border-radius:20px 20px 0 0;padding:20px 16px 40px;max-height:90vh;overflow-y:auto}
-  .sheet-handle{width:36px;height:4px;background:#E8E6E1;border-radius:2px;margin:0 auto 16px}
-  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-  .sheet{animation:slideUp .22s ease}
 </style>
 </head>
 <body>
@@ -60,6 +41,7 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 let _sbSession   = null;   // full Supabase session object
 let _sbUserEmail = '';
 let _gAccessToken = '';    // kept for Google Drive backup only
+let _calToken = '';        // Google Calendar provider_token
 
 // ── Supabase Auth helpers ──────────────────────────────────────────────────────
 
@@ -75,8 +57,12 @@ function sbAuthHeaders(extra) {
 
 // Sign in with Google via Supabase Auth (redirects back to app)
 async function gSignIn() {
-  const redirectTo = 'https://ddemburg.github.io/archstudio/index.html';
-  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+  const redirectTo = window.location.origin + window.location.pathname;
+  const scopes = [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
+  ].join(' ');
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}&scopes=${encodeURIComponent(scopes)}`;
   return new Promise(()=>{});
 }
 
@@ -103,6 +89,12 @@ async function gTrySilentSignIn() {
           user:          userData
         };
         _sbUserEmail = userData.email || '';
+        // Save provider_token (Google Calendar token)
+        const providerToken = params.get('provider_token');
+        if (providerToken) {
+          _calToken = providerToken;
+          try { sessionStorage.setItem('arch_cal_token', providerToken); } catch(e) {}
+        }
         // Save session to sessionStorage
         try {
           sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
@@ -124,6 +116,8 @@ async function gTrySilentSignIn() {
       if (session.expires_at > Date.now() + 60000) {
         _sbSession   = session;
         _sbUserEmail = session.user?.email || sessionStorage.getItem('arch_email') || '';
+        const calTok = sessionStorage.getItem('arch_cal_token');
+        if (calTok) _calToken = calTok;
         return true;
       }
       // Try refresh token
@@ -175,8 +169,12 @@ async function gSignOut() {
   } catch(e) {}
   _sbSession   = null;
   _sbUserEmail = '';
+  _calToken    = '';
   sessionStorage.removeItem('arch_session');
   sessionStorage.removeItem('arch_email');
+  sessionStorage.removeItem('arch_token');
+  sessionStorage.removeItem('arch_cal_token');
+  localStorage.removeItem('arch_hint');
 }
 
 function gIsSignedIn() { return !!_sbSession; }
@@ -238,7 +236,6 @@ async function sbEnsureMember(email, name, picture) {
 
 async function apiLoad() {
   if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
-  if (!_sbUserEmail && _sbSession?.user?.email) _sbUserEmail=_sbSession.user.email;
   const member = await sbGetMember(_sbUserEmail);
   if (!member) throw new Error('Not a member');
   const rows = await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
@@ -339,6 +336,571 @@ async function sbDeleteFile(path) {
   });
   return res.ok;
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// GOOGLE CALENDAR API HELPERS
+// ══════════════════════════════════════════════════════════════════════════
+function gCalReady(){ return !!_calToken; }
+
+async function gCalGetBusy(startDate,endDate){
+  if(!_calToken) return [];
+  try{
+    const res=await fetch('https://www.googleapis.com/calendar/v3/freeBusy',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+_calToken,'Content-Type':'application/json'},
+      body:JSON.stringify({timeMin:new Date(startDate).toISOString(),timeMax:new Date(endDate).toISOString(),items:[{id:'primary'}]}),
+    });
+    if(!res.ok){console.warn('CalBusy err:',await res.text());return[];}
+    const d=await res.json();
+    return d.calendars?.primary?.busy||[];
+  }catch(e){console.warn('gCalGetBusy:',e);return[];}
+}
+
+async function gCalCreateEvent({title,description,startISO,endISO,attendeeEmail,location}){
+  if(!_calToken) throw new Error('לא מחובר ל-Google Calendar');
+  const event={
+    summary:title, description,
+    start:{dateTime:startISO,timeZone:'Asia/Jerusalem'},
+    end:{dateTime:endISO,timeZone:'Asia/Jerusalem'},
+    attendees:attendeeEmail?[{email:attendeeEmail}]:[],
+    location:location||undefined,
+    reminders:{useDefault:false,overrides:[{method:'email',minutes:1440},{method:'popup',minutes:30}]},
+  };
+  const res=await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+_calToken,'Content-Type':'application/json'},
+    body:JSON.stringify(event),
+  });
+  if(!res.ok){const e=await res.text();throw new Error('שגיאה ביצירת אירוע: '+e);}
+  return res.json();
+}
+
+// ── Save/load booking requests via Supabase (office_data → meetings key) ──────
+async function saveMeetingRequest(req){
+  // req = { token, slots, note, subject, meetingType, location, projectName, hostEmail, createdAt }
+  if(!_sbUserEmail){const s=sessionStorage.getItem('arch_email');if(s)_sbUserEmail=s;}
+  const member=await sbGetMember(_sbUserEmail);
+  if(!member) throw new Error('Not a member');
+  const rows=await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
+  const data=rows?.[0]?.data||{};
+  const meetings=data.meetings||{};
+  meetings[req.token]=req;
+  await sbQuery(`office_data?office_id=eq.${member.office_id}`,{
+    method:'PATCH',
+    headers:sbHeaders({'Prefer':'return=minimal'}),
+    body:JSON.stringify({data:{...data,meetings},updated_at:new Date().toISOString()}),
+  });
+}
+
+async function loadMeetingRequest(token){
+  // Public read — uses anon key, no auth needed
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/office_data?select=data`,{
+    headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON},
+  });
+  if(!res.ok) return null;
+  const rows=await res.json();
+  for(const row of rows){
+    const meetings=row.data?.meetings||{};
+    if(meetings[token]) return meetings[token];
+  }
+  return null;
+}
+
+async function confirmMeetingSlot(token,slotId,guestName,guestEmail){
+  // Mark chosen slot, remove token (one-time use)
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/office_data?select=id,data,office_id`,{
+    headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON},
+  });
+  if(!res.ok) return;
+  const rows=await res.json();
+  for(const row of rows){
+    const meetings=row.data?.meetings||{};
+    if(meetings[token]){
+      const req=meetings[token];
+      req.confirmed={slotId,guestName,guestEmail,confirmedAt:new Date().toISOString()};
+      await fetch(`${SUPABASE_URL}/rest/v1/office_data?id=eq.${row.id}`,{
+        method:'PATCH',
+        headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON,'Content-Type':'application/json','Prefer':'return=minimal'},
+        body:JSON.stringify({data:{...row.data,meetings},updated_at:new Date().toISOString()}),
+      });
+      return req;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// BOOKING PAGE — shown when URL has ?book=TOKEN (no login needed)
+// ══════════════════════════════════════════════════════════════════════════
+const MONTH_HE_F=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const DAY_HE_F=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+const fmtMD=d=>`${d.getDate()} ${MONTH_HE_F[d.getMonth()]} ${d.getFullYear()}`;
+const fmtTH=(h,m=0)=>`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+function BookingPage({token}){
+  const [req,setReq]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState('');
+  const [chosen,setChosen]=useState(null);
+  const [name,setName]=useState('');
+  const [email,setEmail]=useState('');
+  const [confirming,setConfirming]=useState(false);
+  const [confirmed,setConfirmed]=useState(false);
+  const [confirmErr,setConfirmErr]=useState('');
+
+  useEffect(()=>{
+    loadMeetingRequest(token)
+      .then(r=>{
+        if(!r){setErr('הקישור אינו תקף או פג תוקפו');return;}
+        if(r.confirmed){setErr('פגישה זו כבר נקבעה — תודה!');return;}
+        // Rehydrate Date objects
+        const slots=(r.slots||[]).map(s=>({...s,date:new Date(s.date)}));
+        setReq({...r,slots});
+      })
+      .catch(()=>setErr('שגיאה בטעינת הבקשה'))
+      .finally(()=>setLoading(false));
+  },[token]);
+
+  const confirm=async()=>{
+    if(!chosen||!name.trim()){setConfirmErr('נא למלא שם ולבחור זמן');return;}
+    setConfirming(true);setConfirmErr('');
+    try{
+      await confirmMeetingSlot(token,chosen.id,name.trim(),email.trim());
+      setConfirmed(true);
+    }catch(e){setConfirmErr(e.message||'שגיאה — נסה שוב');}
+    setConfirming(false);
+  };
+
+  const bg='linear-gradient(160deg,#2A5740 0%,#3D7A5A 55%,#4E9470 100%)';
+
+  if(loading) return(
+    <div style={{minHeight:'100vh',background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Heebo,sans-serif'}}>
+      <div style={{textAlign:'center',color:'white'}}><div style={{fontSize:48,marginBottom:12}}>🏗</div><div>טוען...</div></div>
+    </div>
+  );
+
+  if(err) return(
+    <div style={{minHeight:'100vh',background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Heebo,sans-serif',direction:'rtl'}}>
+      <div style={{background:'white',borderRadius:20,padding:48,maxWidth:400,width:'90%',textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>
+        <div style={{fontSize:48,marginBottom:12}}>📅</div>
+        <div style={{fontSize:16,fontWeight:600,color:'#1A1A1A',marginBottom:8}}>{err}</div>
+        <div style={{fontSize:13,color:'#8C8C8C'}}>לשאלות פנה למשרד ישירות</div>
+      </div>
+    </div>
+  );
+
+  if(confirmed) return(
+    <div style={{minHeight:'100vh',background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Heebo,sans-serif',direction:'rtl'}}>
+      <div style={{background:'white',borderRadius:20,padding:48,maxWidth:420,width:'90%',textAlign:'center',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>
+        <div style={{fontSize:56,marginBottom:16}}>🎉</div>
+        <h1 style={{fontSize:22,fontWeight:800,marginBottom:8,color:'#1A1A1A'}}>הפגישה נקבעה!</h1>
+        <div style={{background:'#EBF4EF',borderRadius:12,padding:'14px 18px',marginBottom:16}}>
+          <div style={{fontSize:15,fontWeight:700,color:'#2D5A42',marginBottom:4}}>
+            {DAY_HE_F[chosen.date.getDay()]}, {fmtMD(chosen.date)}
+          </div>
+          <div style={{fontSize:14,color:'#3D7A5A'}}>{fmtTH(chosen.hour)}–{fmtTH(chosen.hour+(chosen.duration/60|0))} ({chosen.duration} דק׳)</div>
+        </div>
+        <p style={{fontSize:13,color:'#8C8C8C'}}>נתראה בקרוב! 🏗<br/>המשרד יצור איתך קשר לאישור.</p>
+      </div>
+    </div>
+  );
+
+  const MEET_LABELS={zoom:'💻 פגישת וידאו',office:'🏢 פגישה במשרד',site:'🏗 פגישה בשטח',phone:'📞 שיחת טלפון'};
+
+  return(
+    <div style={{minHeight:'100vh',background:'#F5F4F0',fontFamily:'Heebo,sans-serif',direction:'rtl'}}>
+      {/* Header */}
+      <div style={{background:bg,padding:'28px 24px 36px',color:'white',textAlign:'center'}}>
+        <div style={{fontSize:36,marginBottom:8}}>🏗</div>
+        <h1 style={{fontSize:20,fontWeight:800,marginBottom:4}}>{req.projectName||'תיאום פגישה'}</h1>
+        <div style={{fontSize:13,opacity:.8}}>{MEET_LABELS[req.meetingType]||''}{req.location?' — '+req.location:''}</div>
+      </div>
+
+      <div style={{maxWidth:500,margin:'0 auto',padding:'24px 20px 60px'}}>
+        {/* Note */}
+        {req.note&&<div style={{background:'white',borderRadius:12,padding:'14px 16px',marginBottom:16,border:'1px solid #E8E6E1',fontSize:13,color:'#4A4A4A',lineHeight:1.7,whiteSpace:'pre-line'}}>
+          {req.note}
+        </div>}
+
+        {/* Slot list */}
+        <div style={{fontSize:11,fontWeight:700,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>
+          בחר זמן מועדף
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+          {req.slots.map(s=>{
+            const sel=chosen?.id===s.id;
+            return<div key={s.id} onClick={()=>setChosen(s)}
+              style={{padding:'14px 16px',borderRadius:12,border:`2px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#EBF4EF':'white',cursor:'pointer',display:'flex',alignItems:'center',gap:14,transition:'all .15s',boxShadow:sel?'0 2px 12px rgba(61,122,90,.15)':'none'}}>
+              <div style={{width:46,height:46,borderRadius:10,background:sel?'#3D7A5A':'#F5F5F3',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
+                <span style={{fontSize:10,fontWeight:700,color:sel?'rgba(255,255,255,.75)':'#B0B0B0',lineHeight:1.2}}>{MONTH_HE_F[s.date.getMonth()].slice(0,3)}</span>
+                <span style={{fontSize:20,fontWeight:800,color:sel?'white':'#1A1A1A',lineHeight:1}}>{s.date.getDate()}</span>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:'#1A1A1A'}}>{DAY_HE_F[s.date.getDay()]}, {fmtMD(s.date)}</div>
+                <div style={{fontSize:13,color:sel?'#2D5A42':'#6B6B6B'}}>{fmtTH(s.hour)}–{fmtTH(s.hour+1)} · {s.duration} דקות</div>
+              </div>
+              <div style={{width:26,height:26,borderRadius:'50%',border:`2px solid ${sel?'#3D7A5A':'#D0CEC9'}`,background:sel?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
+                {sel&&<span style={{color:'white',fontSize:13,fontWeight:700}}>✓</span>}
+              </div>
+            </div>;
+          })}
+        </div>
+
+        {/* Guest details */}
+        <div style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',padding:'16px 18px',marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:12}}>הפרטים שלך</div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            <label>
+              <span style={{display:'block',fontSize:12,fontWeight:600,color:'#8C8C8C',marginBottom:4}}>שם מלא *</span>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="השם שלך"
+                style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif',outline:'none',boxSizing:'border-box'}}/>
+            </label>
+            <label>
+              <span style={{display:'block',fontSize:12,fontWeight:600,color:'#8C8C8C',marginBottom:4}}>אימייל (לאישור)</span>
+              <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="email@example.com" type="email"
+                style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif',outline:'none',boxSizing:'border-box'}}/>
+            </label>
+          </div>
+        </div>
+
+        {confirmErr&&<div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 12px',fontSize:12,color:'#DC2626',marginBottom:12}}>{confirmErr}</div>}
+
+        <button onClick={confirm} disabled={!chosen||!name.trim()||confirming}
+          style={{width:'100%',height:50,borderRadius:12,border:'none',background:chosen&&name.trim()?'#3D7A5A':'#B0B0B0',color:'white',fontSize:15,fontWeight:700,cursor:chosen&&name.trim()?'pointer':'not-allowed',fontFamily:'Heebo,sans-serif',transition:'all .15s'}}>
+          {confirming?'שומר...':chosen?`✓ אני בוחר/ת — ${DAY_HE_F[chosen.date.getDay()]}, ${fmtTH(chosen.hour)}`:'בחר זמן ואשר'}
+        </button>
+
+        <div style={{textAlign:'center',marginTop:16,fontSize:11,color:'#C0C0C0'}}>
+          {req.hostEmail&&`נשלח ע"י ${req.hostEmail}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MEETING SCHEDULER MODAL — for staff (admin/manager/drafter)
+// ══════════════════════════════════════════════════════════════════════════
+function MeetingScheduler({project,onClose}){
+  const proj=project||{name:'פגישה',client_email:''};
+  const [step,setStep]=useState(1);
+  const [selectedSlots,setSelectedSlots]=useState([]);
+  const [busySlots,setBusySlots]=useState([]);
+  const [loadingCal,setLoadingCal]=useState(false);
+  const [calError,setCalError]=useState('');
+  const [viewMonth,setViewMonth]=useState({y:new Date().getFullYear(),m:new Date().getMonth()});
+  const [pickedDay,setPickedDay]=useState(null);
+  const [duration,setDuration]=useState(60);
+  const [compForm,setCompForm]=useState({
+    to:proj.client_email||'',
+    toName:'',
+    subject:`בקשת פגישה — ${proj.name}`,
+    note:`שלום,\n\nאשמח לקבוע פגישה לעדכון בנושא הפרויקט.\nנא לבחור את הזמן המועדף עליך.\n\nתודה רבה`,
+    meetingType:'zoom',location:'',
+  });
+  const [sending,setSending]=useState(false);
+  const [sendError,setSendError]=useState('');
+  const [bookingLink,setBookingLink]=useState('');
+
+  const WORK_HOURS=[8,9,10,11,12,13,14,15,16,17];
+
+  // Load busy slots from Google Calendar
+  useEffect(()=>{
+    if(!gCalReady()) return;
+    setLoadingCal(true);setCalError('');
+    const start=new Date(viewMonth.y,viewMonth.m,1);
+    const end=new Date(viewMonth.y,viewMonth.m+1,1);
+    gCalGetBusy(start,end)
+      .then(b=>{setBusySlots(b);setLoadingCal(false);})
+      .catch(()=>{setCalError('שגיאה בטעינת יומן');setLoadingCal(false);});
+  },[viewMonth.y,viewMonth.m]);
+
+  const isHourBusy=(date,hour)=>{
+    if(!gCalReady()) return false;
+    const slotStart=new Date(date);slotStart.setHours(hour,0,0,0);
+    const slotEnd=new Date(date);slotEnd.setHours(hour+1,0,0,0);
+    return busySlots.some(b=>{const bs=new Date(b.start),be=new Date(b.end);return bs<slotEnd&&be>slotStart;});
+  };
+
+  const toggleSlot=useCallback(slot=>{
+    setSelectedSlots(prev=>{
+      const exists=prev.find(s=>s.id===slot.id);
+      return exists?prev.filter(s=>s.id!==slot.id):[...prev,slot].sort((a,b)=>a.date-b.date||a.hour-b.hour);
+    });
+  },[]);
+
+  // Calendar grid
+  const today=new Date();
+  const firstDay=new Date(viewMonth.y,viewMonth.m,1);
+  const lastDay=new Date(viewMonth.y,viewMonth.m+1,0);
+  const startDow=(firstDay.getDay()+1)%7;
+  const calCells=[];
+  for(let i=0;i<startDow;i++) calCells.push(null);
+  for(let d=1;d<=lastDay.getDate();d++) calCells.push(new Date(viewMonth.y,viewMonth.m,d));
+
+  const isPast=d=>d&&d<today&&!sameDay2(d,today);
+  const isWeekend=d=>d&&(d.getDay()===5||d.getDay()===6);
+  const sameDay2=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  const hasSelected=d=>d&&selectedSlots.some(s=>sameDay2(s.date,d));
+
+  const addAllFree=day=>{
+    WORK_HOURS.forEach(h=>{
+      if(!isHourBusy(day,h)){
+        const sl={id:`${day.toDateString()}-${h}`,date:new Date(day),hour:h,duration};
+        setSelectedSlots(prev=>prev.find(s=>s.id===sl.id)?prev:[...prev,sl].sort((a,b)=>a.date-b.date||a.hour-b.hour));
+      }
+    });
+  };
+
+  // Generate unique booking token + save to Supabase
+  const handleSend=async()=>{
+    if(!compForm.to.trim()&&!compForm.toName.trim()){setSendError('נא להזין שם או אימייל של הנמען');return;}
+    setSending(true);setSendError('');
+    try{
+      const token=uid()+uid(); // unique enough for internal use
+      const req={
+        token,
+        slots:selectedSlots.map(s=>({...s,date:s.date.toISOString()})),
+        note:compForm.note,
+        subject:compForm.subject,
+        meetingType:compForm.meetingType,
+        location:compForm.location,
+        projectName:proj.name,
+        hostEmail:_sbUserEmail||sessionStorage.getItem('arch_email')||'',
+        toEmail:compForm.to,
+        toName:compForm.toName,
+        createdAt:new Date().toISOString(),
+      };
+      await saveMeetingRequest(req);
+      const link=`${window.location.origin}${window.location.pathname}?book=${token}`;
+      setBookingLink(link);
+      setStep(3);
+    }catch(e){setSendError(e.message||'שגיאה בשמירת הבקשה');}
+    setSending(false);
+  };
+
+  const uC=(k,v)=>setCompForm(f=>({...f,[k]:v}));
+  const inpSt={width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif',background:'white',outline:'none',boxSizing:'border-box'};
+  const lblSt={display:'block',fontSize:11,fontWeight:700,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:5};
+  const STEPS=[{n:1,l:'בחר סלוטים'},{n:2,l:'הגדר שליחה'},{n:3,l:'קישור מוכן'}];
+
+  // STEP 1 — calendar + slot picker
+  const Step1=()=>(
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+      {/* Duration */}
+      <div>
+        <div style={lblSt}>משך הפגישה</div>
+        <div style={{display:'flex',gap:6}}>
+          {[30,60,90,120].map(d=><button key={d} onClick={()=>setDuration(d)}
+            style={{height:34,padding:'0 14px',borderRadius:8,border:`1px solid ${duration===d?'#3D7A5A':'#E8E6E1'}`,background:duration===d?'#3D7A5A':'white',color:duration===d?'white':'#6B6B6B',fontSize:13,fontWeight:duration===d?600:400,cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .15s'}}>
+            {d<60?`${d} דק׳`:`${d/60} שעה${d>60?'ות':''}`}
+          </button>)}
+        </div>
+      </div>
+      {/* Cal status */}
+      {!gCalReady()&&<div style={{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#B45309'}}>
+        ⚠️ לא מחובר ל-Google Calendar — <strong>התנתק והתחבר מחדש</strong> כדי לטעון שעות תפוסות אוטומטית. בינתיים ניתן לבחור שעות ידנית.
+      </div>}
+      {gCalReady()&&loadingCal&&<div style={{fontSize:12,color:'#9C9C9C',padding:'4px 0'}}>⏳ טוען יומן...</div>}
+      {calError&&<div style={{fontSize:12,color:'#DC2626'}}>{calError}</div>}
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        {/* Calendar */}
+        <div style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',borderBottom:'1px solid #E8E6E1',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <button onClick={()=>setViewMonth(p=>({y:p.m===0?p.y-1:p.y,m:p.m===0?11:p.m-1}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#6B6B6B',padding:4}}>›</button>
+            <span style={{fontSize:14,fontWeight:700}}>{MONTH_HE_F[viewMonth.m]} {viewMonth.y}</span>
+            <button onClick={()=>setViewMonth(p=>({y:p.m===11?p.y+1:p.y,m:p.m===11?0:p.m+1}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#6B6B6B',padding:4}}>‹</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',padding:'6px 8px 2px'}}>
+            {['א','ב','ג','ד','ה','ו','ש'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:'#B0B0B0',padding:'2px 0'}}>{d}</div>)}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',padding:'2px 8px 10px',gap:2}}>
+            {calCells.map((day,i)=>{
+              if(!day) return <div key={`e${i}`}/>;
+              const past=isPast(day),wknd=isWeekend(day),disabled=past||wknd;
+              const picked=pickedDay&&sameDay2(day,pickedDay),hasSl=hasSelected(day);
+              return<div key={day.toDateString()} onClick={()=>!disabled&&setPickedDay(new Date(day))}
+                style={{height:32,borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:picked?700:hasSl?600:400,cursor:disabled?'default':'pointer',background:picked?'#3D7A5A':hasSl?'#EBF4EF':'transparent',color:picked?'white':disabled?'#D0D0D0':hasSl?'#2D5A42':'#1A1A1A',position:'relative',transition:'all .12s'}}
+                onMouseOver={e=>{if(!disabled&&!picked)e.currentTarget.style.background='#F0F0EC';}}
+                onMouseOut={e=>{if(!picked)e.currentTarget.style.background=hasSl?'#EBF4EF':'transparent';}}>
+                {day.getDate()}
+                {hasSl&&!picked&&<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:'#3D7A5A'}}/>}
+              </div>;
+            })}
+          </div>
+        </div>
+        {/* Hour picker */}
+        {!pickedDay
+          ?<div style={{background:'#FAFAF8',borderRadius:12,border:'1px dashed #E8E6E1',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:8,padding:24}}>
+            <span style={{fontSize:32}}>📅</span>
+            <span style={{fontSize:13,color:'#B0B0B0',textAlign:'center'}}>לחץ על יום כדי לבחור שעות</span>
+          </div>
+          :<div style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',overflow:'hidden'}}>
+            <div style={{padding:'12px 14px',borderBottom:'1px solid #E8E6E1',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:13,fontWeight:700}}>{fmtMD(pickedDay)}</span>
+              <button onClick={()=>addAllFree(pickedDay)} style={{fontSize:11,fontWeight:700,background:'#EBF4EF',color:'#2D5A42',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ כל הפנוי</button>
+            </div>
+            <div style={{padding:'8px 10px',display:'flex',flexDirection:'column',gap:4,maxHeight:260,overflowY:'auto'}}>
+              {WORK_HOURS.map(h=>{
+                const busy=isHourBusy(pickedDay,h);
+                const sl={id:`${pickedDay.toDateString()}-${h}`,date:new Date(pickedDay),hour:h,duration};
+                const sel=selectedSlots.some(s=>s.id===sl.id);
+                return<div key={h} onClick={()=>!busy&&toggleSlot(sl)}
+                  style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${sel?'#3D7A5A':busy?'#F5F5F3':'#E8E6E1'}`,background:sel?'#EBF4EF':busy?'#FAFAF8':'white',cursor:busy?'not-allowed':'pointer',display:'flex',alignItems:'center',gap:8,opacity:busy?.4:1,transition:'all .12s'}}>
+                  <span style={{fontSize:12,fontWeight:600,color:sel?'#2D5A42':'#1A1A1A',minWidth:50}}>{fmtTH(h)}–{fmtTH(h+1)}</span>
+                  <span style={{flex:1,fontSize:11,color:'#B0B0B0'}}>{busy?'תפוס':sel?'✓ נבחר':'פנוי'}</span>
+                  {!busy&&<div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {sel&&<span style={{color:'white',fontSize:9,fontWeight:700}}>✓</span>}
+                  </div>}
+                </div>;
+              })}
+            </div>
+          </div>}
+      </div>
+
+      <div style={{background:'#EBF4EF',borderRadius:10,padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <span style={{fontSize:13,color:'#2D5A42',fontWeight:600}}>
+          {selectedSlots.length===0?'לא נבחרו סלוטים':'נבחרו '+selectedSlots.length+' סלוטים לשיתוף'}
+        </span>
+        <button onClick={()=>setStep(2)} disabled={selectedSlots.length===0}
+          style={{height:36,padding:'0 20px',borderRadius:8,border:'none',background:selectedSlots.length>0?'#3D7A5A':'#B0B0B0',color:'white',fontSize:13,fontWeight:700,cursor:selectedSlots.length>0?'pointer':'not-allowed',fontFamily:'Heebo,sans-serif'}}>
+          המשך →
+        </button>
+      </div>
+    </div>
+  );
+
+  // STEP 2 — compose details
+  const Step2=()=>(
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <label><span style={lblSt}>שם הנמען</span>
+          <input value={compForm.toName} onChange={e=>uC('toName',e.target.value)} placeholder="דוד כהן / לקוח חדש" style={inpSt}/>
+        </label>
+        <label><span style={lblSt}>אימייל (לא חובה)</span>
+          <input value={compForm.to} onChange={e=>uC('to',e.target.value)} placeholder="email@example.com" style={inpSt}/>
+        </label>
+        <label style={{gridColumn:'1/-1'}}><span style={lblSt}>נושא</span>
+          <input value={compForm.subject} onChange={e=>uC('subject',e.target.value)} style={inpSt}/>
+        </label>
+        <label><span style={lblSt}>סוג פגישה</span>
+          <select value={compForm.meetingType} onChange={e=>uC('meetingType',e.target.value)} style={inpSt}>
+            <option value="zoom">💻 Zoom / וידאו</option>
+            <option value="office">🏢 במשרד</option>
+            <option value="site">🏗 בשטח</option>
+            <option value="phone">📞 שיחת טלפון</option>
+          </select>
+        </label>
+        {(compForm.meetingType==='office'||compForm.meetingType==='site')&&
+          <label><span style={lblSt}>כתובת</span><input value={compForm.location} onChange={e=>uC('location',e.target.value)} placeholder="רחוב ומספר" style={inpSt}/></label>}
+        <label style={{gridColumn:'1/-1'}}><span style={lblSt}>הודעה אישית</span>
+          <textarea value={compForm.note} onChange={e=>uC('note',e.target.value)} rows={4}
+            style={{...inpSt,height:'auto',resize:'none',padding:'8px 10px'}}/>
+        </label>
+      </div>
+      {/* Slots preview */}
+      <div>
+        <span style={{...lblSt,display:'block',marginBottom:8}}>הסלוטים שיוצעו ({selectedSlots.length})</span>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+          {selectedSlots.map(s=><div key={s.id} style={{padding:'7px 10px',borderRadius:8,border:'1px solid #E8E6E1',background:'white',fontSize:12,color:'#4A4A4A'}}>
+            📅 {fmtMD(s.date)} | {fmtTH(s.hour)}–{fmtTH(s.hour+1)}
+          </div>)}
+        </div>
+      </div>
+      {sendError&&<div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,padding:'8px 12px',fontSize:12,color:'#DC2626'}}>{sendError}</div>}
+      <div style={{display:'flex',gap:8,justifyContent:'space-between'}}>
+        <button onClick={()=>setStep(1)} style={{height:38,padding:'0 18px',borderRadius:8,border:'1px solid #E8E6E1',background:'white',color:'#6B6B6B',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>← חזרה</button>
+        <button onClick={handleSend} disabled={sending}
+          style={{height:38,padding:'0 22px',borderRadius:8,border:'none',background:sending?'#B0B0B0':'#3D7A5A',color:'white',fontSize:13,fontWeight:700,cursor:sending?'not-allowed':'pointer',fontFamily:'Heebo,sans-serif'}}>
+          {sending?'יוצר קישור...':'🔗 צור קישור לבחירה'}
+        </button>
+      </div>
+    </div>
+  );
+
+  // STEP 3 — share the link
+  const Step3=()=>{
+    const [copied,setCopied]=useState(false);
+    const copy=()=>{navigator.clipboard.writeText(bookingLink).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});};
+    return<div style={{textAlign:'center',padding:'16px 0'}}>
+      <div style={{width:64,height:64,borderRadius:'50%',background:'#EBF4EF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:32,margin:'0 auto 14px'}}>🔗</div>
+      <h2 style={{fontSize:19,fontWeight:700,marginBottom:6}}>הקישור מוכן!</h2>
+      <p style={{fontSize:13,color:'#6B6B6B',marginBottom:20}}>
+        שלח את הקישור הזה <strong>לכל אדם</strong> — לקוח קיים, חדש, או כל אחד אחר.<br/>
+        הם יוכלו לבחור זמן ללא צורך בהתחברות.
+      </p>
+      {/* Link box */}
+      <div style={{background:'#F5F4F0',border:'1px solid #E8E6E1',borderRadius:10,padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
+        <span style={{flex:1,fontSize:12,color:'#4A4A4A',textAlign:'right',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',direction:'ltr'}}>{bookingLink}</span>
+        <button onClick={copy} style={{height:32,padding:'0 14px',borderRadius:7,border:'none',background:copied?'#3D7A5A':'#1A1A1A',color:'white',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'Heebo,sans-serif',flexShrink:0,transition:'all .2s'}}>
+          {copied?'✓ הועתק':'העתק'}
+        </button>
+      </div>
+      {/* Quick share options */}
+      <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:20,flexWrap:'wrap'}}>
+        <a href={`https://wa.me/?text=${encodeURIComponent(compForm.subject+'\n'+bookingLink)}`} target="_blank"
+          style={{height:36,padding:'0 16px',borderRadius:8,background:'#25D366',color:'white',fontSize:12,fontWeight:700,textDecoration:'none',display:'flex',alignItems:'center',gap:6}}>
+          📱 שתף ב-WhatsApp
+        </a>
+        <a href={`mailto:${compForm.to}?subject=${encodeURIComponent(compForm.subject)}&body=${encodeURIComponent(compForm.note+'\n\nלבחירת זמן: '+bookingLink)}`}
+          style={{height:36,padding:'0 16px',borderRadius:8,background:'#4A90D9',color:'white',fontSize:12,fontWeight:700,textDecoration:'none',display:'flex',alignItems:'center',gap:6}}>
+          📧 שלח במייל
+        </a>
+        <a href={bookingLink} target="_blank"
+          style={{height:36,padding:'0 16px',borderRadius:8,background:'#F5F4F0',border:'1px solid #E8E6E1',color:'#4A4A4A',fontSize:12,fontWeight:700,textDecoration:'none',display:'flex',alignItems:'center',gap:6}}>
+          👁 תצוגה מקדימה
+        </a>
+      </div>
+      {/* Slots reminder */}
+      <div style={{background:'#EBF4EF',borderRadius:10,padding:'12px 14px',textAlign:'right',marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:700,color:'#2D5A42',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>הסלוטים שהוצעו</div>
+        {selectedSlots.map(s=><div key={s.id} style={{fontSize:12,padding:'2px 0',color:'#2D5A42'}}>✓ {fmtMD(s.date)} — {fmtTH(s.hour)}–{fmtTH(s.hour+1)}</div>)}
+      </div>
+      <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+        <button onClick={()=>{setStep(1);setSelectedSlots([]);setBookingLink('');}} style={{height:38,padding:'0 18px',borderRadius:8,border:'1px solid #E8E6E1',background:'white',color:'#6B6B6B',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ בקשה חדשה</button>
+        <button onClick={onClose} style={{height:38,padding:'0 22px',borderRadius:8,border:'none',background:'#3D7A5A',color:'white',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>סגור</button>
+      </div>
+    </div>;
+  };
+
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.45)',direction:'rtl',fontFamily:'Heebo,sans-serif'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,boxShadow:'0 24px 80px rgba(0,0,0,.2)',width:'100%',maxWidth:720,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {/* Header */}
+        <div style={{padding:'16px 22px',borderBottom:'1px solid #E8E6E1',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{width:34,height:34,borderRadius:9,background:'#EBF4EF',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>📅</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700}}>תיאום פגישה</div>
+              <div style={{fontSize:12,color:'#8C8C8C'}}>{proj.name}</div>
+            </div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            {STEPS.map((s,i)=><div key={s.n} style={{display:'flex',alignItems:'center',gap:5}}>
+              <div style={{width:24,height:24,borderRadius:'50%',background:step>s.n?'#3D7A5A':step===s.n?'#1A1A1A':'#F0EDE8',color:step>=s.n?'white':'#B0B0B0',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{step>s.n?'✓':s.n}</div>
+              <span style={{fontSize:11,color:step===s.n?'#1A1A1A':'#B0B0B0',fontWeight:step===s.n?600:400}}>{s.l}</span>
+              {i<2&&<span style={{color:'#D0CEC9',fontSize:11,margin:'0 2px'}}>›</span>}
+            </div>)}
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#B0B0B0',lineHeight:1,padding:4}}>×</button>
+        </div>
+        {/* Body */}
+        <div style={{padding:'20px 24px',overflowY:'auto',flex:1}}>
+          {step===1&&<Step1/>}
+          {step===2&&<Step2/>}
+          {step===3&&<Step3/>}
+        </div>
+        {/* Footer */}
+        {step!==3&&<div style={{padding:'8px 22px 12px',borderTop:'1px solid #E8E6E1',flexShrink:0}}>
+          <span style={{fontSize:11,color:'#B0B0B0'}}>
+            {gCalReady()?'✅ מחובר ל-Google Calendar — שעות תפוסות נטענות אוטומטית':'⚪ לא מחובר ל-Google Calendar — התחבר מחדש לסנכרון אוטומטי'}
+          </span>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
 // ── Seed data & helpers ──────────────────────────────────────────────────
 const COLORS=['#4a7c5e','#6366f1','#f59e0b','#ef4444','#06b6d4','#8b5cf6','#ec4899'];
 const SP=[
@@ -460,7 +1022,7 @@ function useApp(){
   const [driveError,setDriveError]=useState(null);
   const saveTimer=useRef(null);
 
-  const driveLoad=useCallback(async()=>{
+  const driveLoad=async()=>{
     try{
       setDriveSyncing(true); setDriveError(null);
       const saved=await apiLoad();
@@ -505,7 +1067,7 @@ function useApp(){
     }).catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
-  },[]);
+  };
 
   const getState=()=>({projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads});
 
@@ -700,143 +1262,6 @@ function Modal({open,onClose,title,children,wide,xl}){
   </div>;
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SORTABLE — smooth drag-to-reorder using pointer events
-// ═══════════════════════════════════════════════════════════════════════════
-function useSortable(items, onReorder) {
-  // dragging = index of item being dragged
-  // insertAt = insert position (0..n), shown as line AFTER item[insertAt-1]
-  const [dragging, setDragging] = useState(null);
-  const [insertAt, setInsertAt] = useState(null);
-  const [ghost, setGhost] = useState(null);
-  const groupKey = useRef(Math.random().toString(36).slice(2)); // unique per instance
-
-  const onHandleMouseDown = (e, index, label) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const key = groupKey.current;
-    setDragging(index);
-    setInsertAt(index);
-    setGhost({ x: e.clientX, y: e.clientY, label });
-
-    const onMove = (me) => {
-      setGhost(g => g ? ({ ...g, x: me.clientX, y: me.clientY }) : null);
-
-      // Find insert position based on cursor vs midpoints of items
-      const els = document.querySelectorAll('[data-sortable-key="' + key + '"]');
-      let pos = 0;
-      els.forEach((el, i) => {
-        const r = el.getBoundingClientRect();
-        const mid = r.top + r.height / 2;
-        if (me.clientY > mid) pos = i + 1;
-      });
-      setInsertAt(pos);
-    };
-
-    const onUp = () => {
-      setGhost(null);
-      setInsertAt(prev => {
-        setDragging(di => {
-          if (di !== null && prev !== null) {
-            // Convert insert position to final index
-            let to = prev;
-            if (to > di) to -= 1; // account for removal
-            if (to !== di) {
-              const next = [...items];
-              const [removed] = next.splice(di, 1);
-              next.splice(to, 0, removed);
-              onReorder(next);
-            }
-          }
-          return null;
-        });
-        return null;
-      });
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
-
-  // showLineAfter(i) — true if the drop line should appear after item i
-  const showLineAfter = (i) => {
-    if (dragging === null || insertAt === null) return false;
-    // Normalize: don't show line adjacent to the dragged item itself
-    const effectiveInsert = insertAt;
-    return effectiveInsert === i + 1 && dragging !== i && dragging !== i + 1;
-  };
-  const showLineBefore = (i) => {
-    if (dragging === null || insertAt === null) return false;
-    return insertAt === i && dragging !== i && dragging !== i - 1;
-  };
-
-  return { dragging, insertAt, ghost, onHandleMouseDown, showLineAfter, showLineBefore, groupKey: groupKey.current };
-}
-
-// Ghost: small pill that follows the cursor tightly
-function DragGhost({ ghost }) {
-  if (!ghost) return null;
-  return ReactDOM.createPortal(
-    <div style={{
-      position: 'fixed',
-      left: ghost.x + 14,
-      top: ghost.y - 10,
-      zIndex: 9999,
-      background: '#1C1C1E',
-      color: 'white',
-      borderRadius: 7,
-      padding: '5px 12px',
-      fontSize: 12,
-      fontWeight: 600,
-      boxShadow: '0 4px 16px rgba(0,0,0,.28)',
-      pointerEvents: 'none',
-      maxWidth: 220,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-      fontFamily: 'Heebo,sans-serif',
-      userSelect: 'none',
-    }}>
-      ↕ {ghost.label}
-    </div>,
-    document.body
-  );
-}
-
-// ─── Confirm Modal ───────────────────────────────────────────────────────────
-function ConfirmModal({open,title,message,onConfirm,onCancel,danger=true}){
-  if(!open)return null;
-  return<div onClick={onCancel} style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.45)'}}>
-    <div onClick={e=>e.stopPropagation()} className="fade" style={{background:'white',borderRadius:14,boxShadow:'0 20px 60px rgba(0,0,0,.2)',width:'100%',maxWidth:360,padding:24}}>
-      <div style={{fontSize:17,fontWeight:700,marginBottom:8}}>{title||'אישור'}</div>
-      {message&&<div style={{fontSize:14,color:'#6B6B6B',marginBottom:20,lineHeight:1.5}}>{message}</div>}
-      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
-        <Btn v="outline" onClick={onCancel}>ביטול</Btn>
-        <Btn v={danger?'danger':'primary'} onClick={onConfirm}>{danger?'מחק':'אישור'}</Btn>
-      </div>
-    </div>
-  </div>;
-}
-
-function useConfirm(){
-  const [state,setState]=useState({open:false,title:'',message:'',danger:true,resolve:null});
-  const confirm=(title,message,danger=true)=>new Promise(resolve=>{
-    setState({open:true,title,message,danger,resolve});
-  });
-  const modal=<ConfirmModal
-    open={state.open}
-    title={state.title}
-    message={state.message}
-    danger={state.danger}
-    onConfirm={()=>{setState(s=>({...s,open:false}));state.resolve(true);}}
-    onCancel={()=>{setState(s=>({...s,open:false}));state.resolve(false);}}
-  />;
-  return[confirm,modal];
-}
-
 // ─── Task Modal (all inline) ──────────────────────────────────────────────────
 function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpToTask,db}){
   const [saved,setSaved]=useState(false);
@@ -854,7 +1279,7 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
   const candidates=allTasks
     .filter(t=>
       t.id!==task.id &&
-      t.id!==task.parent_task_id &&  // not own parent
+      !t.parent_task_id &&  // top-level tasks only for deps
       !(task.depends_on||[]).includes(t.id) &&
       (!depSearch || t.title.includes(depSearch) || (allProjects.find(p=>p.id===t.project_id)||{}).name?.includes(depSearch))
     )
@@ -1337,7 +1762,6 @@ function PartnerChip({partner,style={}}){
 
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
-  const [confirm,confirmModal]=useConfirm();
   // Logged wrappers — auto-record to project log
   const loggedEmail=sessionStorage.getItem('arch_email')||'';
   const logUser=db.partners.find(p=>p.email===loggedEmail)?.name
@@ -1361,14 +1785,10 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     db.addTask(task);
     db.addLog(pid,{user:logUser,action:'add',taskTitle:task.title});
   };
-  const logDelTask=async(id)=>{
+  const logDelTask=(id)=>{
     const t=allTasks.find(x=>x.id===id);
-    const hasChildren=allTasks.some(x=>x.parent_task_id===id);
-    const msg=hasChildren?'יש תת-משימות שגם יימחקו. להמשיך?':'למחוק את המשימה "'+( t?.title||'')+'"?';
-    const ok=await confirm('מחיקת משימה',msg,true);
-    if(!ok)return;
     if(t) db.addLog(pid,{user:logUser,action:'delete',taskTitle:t.title});
-    db.delTask(id);
+    logDelTask(id);
   };
 
   const [newTitle,setNT]=useState('');
@@ -1391,22 +1811,8 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   // Only top-level tasks (no parent) belong to sections
   const myTasks=tasks.filter(t=>!t.parent_task_id);
   const dbSecs=Array.from(new Set(myTasks.map(t=>t.section||'')));
-  const allSecs=Array.from(new Set([...dbSecs,...extras]));
-  // Apply saved section order from project
-  const projData=allProjs.find(p=>p.id===pid)||{};
-  const savedOrder=projData.section_order||[];
-  const sections=[...allSecs].sort((a,b)=>{
-    const ia=savedOrder.indexOf(a); const ib=savedOrder.indexOf(b);
-    if(ia===-1&&ib===-1)return 0; if(ia===-1)return 1; if(ib===-1)return-1; return ia-ib;
-  });
+  const sections=Array.from(new Set([...dbSecs,...extras]));
   const bySec=s=>myTasks.filter(t=>(t.section||'')===s);
-  // Section sort
-  const namedSections = sections.filter(s=>s!=='');
-  const secSort = useSortable(namedSections, ordered => {
-    // Put unnamed section at end
-    const hasEmpty = sections.includes('');
-    db.updProject(pid, {section_order: hasEmpty ? [...ordered,''] : ordered});
-  });
 
   // ── Section (category) helpers ────────────────────────────────────────────
   const proj=allProjs.find(p=>p.id===pid)||{};
@@ -1473,10 +1879,8 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
   const openTask=openId?allTasks.find(t=>t.id===openId):null;
 
-
-
   // ── Recursive TaskRow ────────────────────────────────────────────────────
-  const TaskRow=({task,depth=0,secName,sortCtx,sortIdx})=>{
+  const TaskRow=({task,depth=0})=>{
     const bl=blocked(task);
     const asgn=partners.find(p=>p.id===task.assignee_id);
     const children=allTasks.filter(t=>t.parent_task_id===task.id);
@@ -1492,25 +1896,10 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
     // indent via depth
     const indent=depth*18;
 
-    const isDragging = sortCtx && sortCtx.dragging === sortIdx;
-    return<div
-      data-sortable-key={sortCtx?.groupKey}
-      style={{
-        opacity: depth===0&&isDragging ? .3 : 1,
-        borderTop: depth===0&&sortCtx?.showLineBefore(sortIdx) ? '2.5px solid #3D7A5A' : depth===0?'2.5px solid transparent':undefined,
-        borderBottom: depth===0&&sortCtx?.showLineAfter(sortIdx) ? '2.5px solid #3D7A5A' : depth===0?'2.5px solid transparent':undefined,
-        transition:'border-color .08s,opacity .1s'
-      }}>
+    return<div>
       {/* Row */}
-      <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'transparent'}}
+      <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'white'}}
         onClick={()=>setOID(task.id)}>
-        {depth===0&&sortCtx&&<span
-          onMouseDown={e=>{e.stopPropagation();sortCtx.onHandleMouseDown(e,sortIdx,task.title);}}
-          style={{color:'#B0B0B0',cursor:'grab',fontSize:16,userSelect:'none',flexShrink:0,
-            padding:'3px 5px',borderRadius:4,lineHeight:1,
-            background:isDragging?'#E8EDE9':'transparent',transition:'background .1s'}}
-          title="גרור לשינוי סדר"
-          onClick={e=>e.stopPropagation()}>⠿⠿</span>}
 
         {/* Expand arrow */}
         {hasChildren
@@ -1615,8 +2004,6 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   };
 
   return<div>
-    {confirmModal}
-    <DragGhost ghost={secSort.ghost}/>
     {openTask&&<TaskModal task={openTask} allTasks={allTasks} allProjects={allProjs} partners={partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={jumpToTask} db={db}/>}
     <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
       <input value={newTitle} onChange={e=>setNT(e.target.value)}
@@ -1646,24 +2033,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
           const depsMet=isSecDepsMet(sec);
           const hasDeps=(secDeps[sec]||[]).length>0;
           const otherSecs=sections.filter(s=>s&&s!==sec);
-          const secIdx = namedSections.indexOf(sec);
-          const isSecDragging = secSort.dragging === secIdx;
-          return<div
-            data-sortable-key={secSort.groupKey}
-            style={{display:'flex',alignItems:'center',gap:6,marginBottom:0,
-              opacity:isSecDragging?.3:1,
-              paddingTop: secSort.showLineBefore(secIdx) ? 0 : 0,
-              borderTop: secSort.showLineBefore(secIdx) ? '2.5px solid #3D7A5A' : '2.5px solid transparent',
-              borderBottom: secSort.showLineAfter(secIdx) ? '2.5px solid #3D7A5A' : '2.5px solid transparent',
-              marginBottom: 6,
-              transition:'border-color .08s,opacity .1s'}}>
-            {/* Drag handle */}
-            <span
-              onMouseDown={e=>secSort.onHandleMouseDown(e, secIdx, sec)}
-              style={{color:'#B0B0B0',cursor:'grab',fontSize:16,userSelect:'none',flexShrink:0,
-                padding:'3px 5px',borderRadius:4,lineHeight:1,
-                background:isSecDragging?'#E8EDE9':'transparent',transition:'background .1s'}}
-              title="גרור לשינוי סדר">⠿⠿</span>
+          return<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
             {/* Collapse arrow */}
             <span style={{fontSize:10,cursor:'pointer',color:'#8C8C8C'}} onClick={()=>setColl(c=>({...c,['s_'+sec]:!exp}))}>{exp?'▼':'▶'}</span>
 
@@ -1711,24 +2081,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
         })()}
         {exp&&<div style={{background:'white',border:'1px solid #F0EDE8',borderRadius:10,overflow:'hidden'}}>
           {st.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
-          {(()=>{
-            const order=(projData.task_order||{})[sec||'__']||[];
-            const sorted=[...st].sort((a,b)=>{
-              const ia=order.indexOf(a.id);const ib=order.indexOf(b.id);
-              if(ia===-1&&ib===-1)return 0;if(ia===-1)return 1;if(ib===-1)return-1;return ia-ib;
-            });
-            // Create a sortable context for this section
-            const SectionTasks=()=>{
-              const sortCtx=useSortable(sorted,(reordered)=>{
-                const existingOrder=projData.task_order||{};
-                db.updProject(pid,{task_order:{...existingOrder,[sec||'__']:reordered.map(t=>t.id)}});
-              });
-              return<>{sortCtx.ghost&&<DragGhost ghost={sortCtx.ghost}/>}
-                {sorted.map((t,i)=><TaskRow key={t.id} task={t} depth={0} secName={sec||''} sortCtx={sortCtx} sortIdx={i}/>)}
-              </>;
-            };
-            return<SectionTasks/>;
-          })()}
+          {st.map(t=><TaskRow key={t.id} task={t} depth={0}/>)}
           {addingIn===sec
             ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid #F5F5F3'}}>
               <input autoFocus value={newTitle} onChange={e=>setNT(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addTask(sec);if(e.key==='Escape')setAI(null);}} placeholder="שם משימה..." style={{flex:1,height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
@@ -1963,37 +2316,12 @@ function DocsTab({docs,pid,db}){
   const soon=d=>{if(!d)return false;const dt=new Date(d);const diff=(dt-today)/(1000*60*60*24);return diff>=0&&diff<=30;};
   const expired=d=>{if(!d)return false;return new Date(d)<today;};
   const [sf,setSF]=useState(false);const [form,setF]=useState({name:'',category:'Other'});
-  const [uploading,setUploading]=useState(false);
-  const fileRef=useRef();
   const cats=['Blueprint','Permit','Contract','Report','Correspondence','Other'];
   const CC={Blueprint:'#EFF6FF|#1D4ED8',Permit:'#FFFBEB|#B45309',Contract:'#F5F3FF|#6D28D9',Report:'#ECFDF5|#065F46',Correspondence:'#FFF1F2|#BE123C',Other:'#F3F4F6|#6B7280'};
   const add=()=>{if(!form.name.trim())return;db.addDoc({project_id:pid,...form});setF({name:'',category:'Other'});setSF(false);};
-  const handleUpload=async(e)=>{
-    const file=e.target.files?.[0];
-    if(!file)return;
-    setUploading(true);
-    try{
-      const member=await _getEmail().then(email=>sbGetMember(email));
-      if(member){
-        const path=await sbUploadFile(member.office_id,pid,file);
-        db.addDoc({project_id:pid,name:file.name,category:'Other',expiry:'',storage_path:path});
-      } else {
-        // Fallback — add metadata only
-        db.addDoc({project_id:pid,name:file.name,category:'Other',expiry:''});
-      }
-    }catch(err){alert('שגיאה בהעלאה: '+err.message);}
-    setUploading(false);
-    e.target.value='';
-  };
   return<div>
-    <input ref={fileRef} type="file" style={{display:'none'}} onChange={handleUpload}/>
-    <div style={{display:'flex',gap:8,marginBottom:14}}>
-      <Btn v="outline" sx={{borderStyle:'dashed'}} onClick={()=>setSF(!sf)}>📝 הוסף ידנית</Btn>
-      <Btn v="outline" sx={{borderStyle:'dashed',borderColor:'#6366f1',color:'#6366f1'}} onClick={()=>fileRef.current?.click()} disabled={uploading}>
-        {uploading?'⏳ מעלה...':'📎 העלה קובץ'}
-      </Btn>
-    </div>
-    {sf&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+    {!sf?<Btn v="outline" sx={{marginBottom:14,borderStyle:'dashed'}} onClick={()=>setSF(true)}>📎 הוסף מסמך</Btn>
+    :<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
       <I label="שם" value={form.name} onChange={e=>setF(f=>({...f,name:e.target.value}))} placeholder='תוכנית קומה v3'/>
       <SE label="קטגוריה" value={form.category} onChange={e=>setF(f=>({...f,category:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</SE>
       <I label="תוקף (לא חובה)" type="date" value={form.expiry||''} onChange={e=>setF(f=>({...f,expiry:e.target.value}))}/>
@@ -2243,10 +2571,15 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const ms=project.milestones||[];
   const prog=ms.length?Math.round(ms.filter(m=>m.completed).length/ms.length*100):0;
   const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'log',l:'לוג',e:'📋'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
+  const [showScheduler,setShowScheduler]=useState(false);
   return<div>
+    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)}/>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}><span style={{color:'#9C9C9C',cursor:'pointer'}} onClick={onBack}>לוח בקרה</span><span style={{color:'#C0C0C0'}}>/</span><span style={{color:'#1A1A1A',fontWeight:600}}>{project.name}</span></div>
-      <Btn v='outline' sz='sm' onClick={onOpenPortal} sx={{gap:6}}>👁 תצוגת לקוח</Btn>
+      <div style={{display:'flex',gap:8}}>
+        <Btn v='outline' sz='sm' onClick={()=>setShowScheduler(true)} sx={{gap:6}}>📅 תאם פגישה</Btn>
+        <Btn v='outline' sz='sm' onClick={onOpenPortal} sx={{gap:6}}>👁 תצוגת לקוח</Btn>
+      </div>
     </div>
     <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:18,flexWrap:'wrap',gap:12}}>
       <div>
@@ -2445,25 +2778,15 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
 }
 
 // ─── All Tasks Page ───────────────────────────────────────────────────────────
-function AllTasksPage({db,nav,activeFilter}){
+function AllTasksPage({db,nav}){
   const [fp,setFP]=useState('all');const [oid,setOID]=useState(null);
-  const baseTasks=fp==='all'?db.tasks:db.tasks.filter(t=>t.project_id===fp);
-  const tasks=activeFilter?baseTasks.filter(t=>{
-    if(activeFilter.assignee&&t.assignee_id!==activeFilter.assignee)return false;
-    if(activeFilter.status&&t.status!==activeFilter.status)return false;
-    if(activeFilter.priority&&t.priority!==activeFilter.priority)return false;
-    if(activeFilter.project&&t.project_id!==activeFilter.project)return false;
-    return true;
-  }):baseTasks;
+  const tasks=fp==='all'?db.tasks:db.tasks.filter(t=>t.project_id===fp);
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
-    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:3}}>
-      <h1 style={{fontSize:26,fontWeight:600}}>{activeFilter?activeFilter.icon+' '+activeFilter.name:'כל המשימות'}</h1>
-      {activeFilter&&<span style={{fontSize:12,color:'#3D7A5A',background:'#E8EDE9',padding:'3px 10px',borderRadius:999,fontWeight:600}}>פילטר פעיל</span>}
-    </div>
-    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>{activeFilter?tasks.length+' משימות מתאימות':'מבט כולל על כל הפרויקטים'}</p>
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
+    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
       {[{id:'all',name:'הכל'},...db.projects].map(p=><button key={p.id} onClick={()=>setFP(p.id)} style={{height:32,padding:'0 10px',borderRadius:7,fontSize:12,fontWeight:500,border:fp===p.id?'none':'1px solid #E8E6E1',background:fp===p.id?'#1A1A1A':'white',color:fp===p.id?'white':'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>{p.name}</button>)}
     </div>
@@ -3501,575 +3824,6 @@ function AppSettingsPage({db}){
   </div>;
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MOBILE — detect + components
-// ═══════════════════════════════════════════════════════════════════════════
-function useIsMobile(){
-  const [mobile,setMobile]=useState(()=>window.innerWidth<768);
-  useEffect(()=>{
-    const fn=()=>setMobile(window.innerWidth<768);
-    window.addEventListener('resize',fn);
-    return()=>window.removeEventListener('resize',fn);
-  },[]);
-  return mobile;
-}
-
-// ── Bottom Tab Bar ────────────────────────────────────────────────────────
-function MobileTabBar({tab,setTab,onAdd}){
-  const TABS=[
-    {id:'projects',icon:'📁',label:'פרויקטים'},
-    {id:'tasks',icon:'☑️',label:'משימות'},
-    {id:'add',icon:'＋',label:'הוסף',isAdd:true},
-    {id:'docs',icon:'📄',label:'מסמכים'},
-    {id:'settings',icon:'⚙️',label:'הגדרות'},
-  ];
-  return<div className="tab-bar">
-    {TABS.map(t=>
-      t.isAdd
-        ?<button key="add" onClick={onAdd} className="mobile-fab" style={{position:'relative',bottom:'auto',left:'auto',transform:'none',width:48,height:48,fontSize:24,boxShadow:'0 2px 10px rgba(61,122,90,.35)'}}>＋</button>
-        :<button key={t.id} className={'tab-btn'+(tab===t.id?' active':'')} onClick={()=>setTab(t.id)}>
-          <span className="icon">{t.icon}</span>{t.label}
-        </button>
-    )}
-  </div>;
-}
-
-// ── Mobile Header ─────────────────────────────────────────────────────────
-function MobileHeader({title,onBack,right}){
-  return<div className="mobile-header">
-    {onBack&&<button onClick={onBack} style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:'#3D7A5A',padding:'0 4px',flexShrink:0}}>→</button>}
-    <span style={{flex:1,fontSize:16,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</span>
-    {right}
-  </div>;
-}
-
-// ── Bottom Sheet ──────────────────────────────────────────────────────────
-function BottomSheet({open,onClose,title,children}){
-  if(!open)return null;
-  return<div className="sheet-overlay" onClick={onClose}>
-    <div className="sheet" onClick={e=>e.stopPropagation()}>
-      <div className="sheet-handle"/>
-      {title&&<div style={{fontSize:16,fontWeight:700,marginBottom:16,textAlign:'center'}}>{title}</div>}
-      {children}
-    </div>
-  </div>;
-}
-
-// ── Mobile Projects List ──────────────────────────────────────────────────
-function MobileProjects({db,onOpenProject,onNew}){
-  const [search,setSearch]=useState('');
-  const filtered=db.projects.filter(p=>(p.name+' '+(p.client_name||'')).toLowerCase().includes(search.toLowerCase()));
-  return<div style={{paddingBottom:80}}>
-    <MobileHeader title="פרויקטים" right={
-      <button onClick={onNew} style={{background:'#3D7A5A',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ חדש</button>
-    }/>
-    <div style={{padding:'12px 16px 8px'}}>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 חיפוש פרויקט..."
-        style={{width:'100%',height:40,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:14,fontFamily:'Heebo,sans-serif',background:'#FAFAF8'}}/>
-    </div>
-    <div style={{padding:'0 12px'}}>
-      {filtered.map(p=>{
-        const ms=p.milestones||[];
-        const prog=ms.length?Math.round(ms.filter(m=>m.completed).length/ms.length*100):0;
-        const openTasks=db.tasks.filter(t=>t.project_id===p.id&&t.status!=='Done').length;
-        const ST=STATUS_MAP[p.status]||{heb:p.status,bg:'#F3F4F6',col:'#6B7280',dot:'#9CA3AF'};
-        return<div key={p.id} className="mobile-card" onClick={()=>onOpenProject(p.id)} style={{cursor:'pointer'}}>
-          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:8}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
-              {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C'}}>👤 {p.client_name}</div>}
-            </div>
-            <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,background:ST.bg,color:ST.col,flexShrink:0,marginRight:8}}>{ST.heb}</span>
-          </div>
-          {ms.length>0&&<div style={{marginBottom:8}}>
-            <div style={{height:4,background:'#F0EDE8',borderRadius:2,overflow:'hidden'}}>
-              <div style={{height:'100%',background:'#3D7A5A',width:prog+'%',borderRadius:2}}/>
-            </div>
-          </div>}
-          <div style={{display:'flex',gap:12,fontSize:12,color:'#8C8C8C'}}>
-            {openTasks>0&&<span>☑️ {openTasks} משימות פתוחות</span>}
-            {p.address&&<span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>📍 {p.address}</span>}
-          </div>
-        </div>;
-      })}
-      {filtered.length===0&&<div style={{textAlign:'center',padding:48,color:'#B0B0B0'}}>
-        <div style={{fontSize:36,marginBottom:8}}>📁</div>
-        <div>אין פרויקטים</div>
-      </div>}
-    </div>
-  </div>;
-}
-
-// ── Mobile Task Row ───────────────────────────────────────────────────────
-function MobileTaskRow({task,allTasks,db,onOpen}){
-  const children=allTasks.filter(t=>t.parent_task_id===task.id);
-  const childDone=children.filter(t=>t.status==='Done').length;
-  const blocked=(task.depends_on||[]).some(id=>{const d=allTasks.find(x=>x.id===id);return d&&d.status!=='Done';});
-  const ST={
-    'To Do':  {bg:'#F3F4F6',col:'#4B5563',next:'In Progress',nextLabel:'התחל'},
-    'In Progress':{bg:'#FFFBEB',col:'#B45309',next:'Done',nextLabel:'סיים'},
-    'Done':   {bg:'#ECFDF5',col:'#065F46',next:'To Do',nextLabel:'פתח מחדש'},
-  };
-  const s=ST[task.status]||ST['To Do'];
-  return<div className="task-row-mobile" onClick={()=>onOpen(task)}>
-    <div style={{flex:1,minWidth:0}}>
-      <div style={{fontSize:14,fontWeight:500,color:task.status==='Done'?'#B0B0B0':'#1A1A1A',
-        textDecoration:task.status==='Done'?'line-through':'',marginBottom:2,
-        overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.title}</div>
-      <div style={{display:'flex',gap:8,fontSize:11,color:'#9C9C9C',alignItems:'center'}}>
-        {task.section&&<span>{task.section}</span>}
-        {children.length>0&&<span>{childDone}/{children.length} תתי-משימות</span>}
-        {blocked&&<span style={{color:'#EF4444'}}>⛔ חסום</span>}
-        {task.deadline&&<span style={{color:new Date(task.deadline)<new Date()&&task.status!=='Done'?'#EF4444':'#9C9C9C'}}>{fmtD(task.deadline)}</span>}
-      </div>
-    </div>
-    <button onClick={e=>{e.stopPropagation();if(!blocked||s.next==='To Do')db.updTask(task.id,{status:s.next});}}
-      className="status-pill"
-      style={{background:s.bg,color:s.col,opacity:blocked&&s.next!=='To Do'?.4:1,flexShrink:0}}>
-      {s.nextLabel}
-    </button>
-  </div>;
-}
-
-// ── Mobile Task Sheet ─────────────────────────────────────────────────────
-function MobileTaskSheet({task,allTasks,partners,db,onClose}){
-  const [note,setNote]=useState('');
-  const children=allTasks.filter(t=>t.parent_task_id===task.id);
-  const asgn=partners.find(p=>p.id===task.assignee_id);
-  const addNote=async()=>{
-    if(!note.trim())return;
-    const {data:u}=await sb.auth.getUser();
-    const email=u?.user?.email||'';
-    const author=partners.find(p=>p.email===email);
-    db.updTask(task.id,{notes:[...(task.notes||[]),{id:uid(),text:note.trim(),date:new Date().toISOString().split('T')[0],author_name:author?.name||email}]});
-    setNote('');
-  };
-  const ST=[
-    {id:'To Do',label:'להתחלה',bg:'#F3F4F6',col:'#4B5563',activeBg:'#1A1A1A',activeCol:'white'},
-    {id:'In Progress',label:'בתהליך',bg:'#FFFBEB',col:'#B45309',activeBg:'#F59E0B',activeCol:'white'},
-    {id:'Done',label:'הושלם',bg:'#ECFDF5',col:'#065F46',activeBg:'#3D7A5A',activeCol:'white'},
-  ];
-  const [newSub,setNewSub]=useState('');
-  const addSub=()=>{if(!newSub.trim())return;db.addTask({project_id:task.project_id,title:newSub.trim(),section:task.section||'',status:'To Do',priority:'Medium',parent_task_id:task.id,depends_on:[],notes:[],description:''});setNewSub('');};
-  return<BottomSheet open onClose={onClose}>
-    {/* Title + delete */}
-    <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12,gap:8}}>
-      <div style={{fontSize:17,fontWeight:700,lineHeight:1.4,flex:1}}>{task.title}</div>
-      <button onClick={async()=>{
-        const hasChildren=allTasks.some(x=>x.parent_task_id===task.id);
-        const msg=hasChildren?'יש תת-משימות שגם יימחקו. להמשיך?':'למחוק את "'+task.title+'"?';
-        if(!window._confirmDelete)window._confirmDelete=()=>Promise.resolve(window.confirm('מחק?'));
-        const el=document.createElement('div');el.id='mob-confirm-'+task.id;document.body.appendChild(el);
-        const ok=await new Promise(res=>{
-          const root=ReactDOM.createRoot(el);
-          root.render(<ConfirmModal open title="מחיקת משימה" message={msg} danger
-            onConfirm={()=>{root.unmount();el.remove();res(true);}}
-            onCancel={()=>{root.unmount();el.remove();res(false);}}/>);
-        });
-        if(ok){db.delTask(task.id);onClose();}
-      }} style={{background:'#FEF2F2',border:'none',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:13,color:'#DC2626',flexShrink:0}}>
-        🗑 מחק
-      </button>
-    </div>
-    {/* Status buttons */}
-    <div style={{display:'flex',gap:8,marginBottom:16}}>
-      {ST.map(s=>{const isA=task.status===s.id;return<button key={s.id} onClick={()=>db.updTask(task.id,{status:s.id})}
-        style={{flex:1,height:36,borderRadius:8,border:'none',fontSize:12,fontWeight:isA?700:500,
-          background:isA?s.activeBg:s.bg,color:isA?s.activeCol:s.col,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>
-        {isA&&'✓ '}{s.label}
-      </button>;})}
-    </div>
-    {/* Details */}
-    <div style={{background:'#F7F6F3',borderRadius:10,padding:'10px 12px',marginBottom:16,display:'flex',flexDirection:'column',gap:8}}>
-      {asgn&&<div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span style={{color:'#8C8C8C'}}>אחראי</span><span style={{fontWeight:500}}>{asgn.name}</span></div>}
-      {task.deadline&&<div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span style={{color:'#8C8C8C'}}>דד-ליין</span><span style={{fontWeight:500,color:new Date(task.deadline)<new Date()&&task.status!=='Done'?'#EF4444':'#1A1A1A'}}>{fmtD(task.deadline)}</span></div>}
-      {task.section&&<div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span style={{color:'#8C8C8C'}}>קטגוריה</span><span style={{fontWeight:500}}>{task.section}</span></div>}
-    </div>
-    {/* Subtasks */}
-    <div style={{marginBottom:16}}>
-      <div style={{fontSize:12,fontWeight:700,color:'#8C8C8C',textTransform:'uppercase',marginBottom:8}}>תתי-משימות</div>
-      {children.map(c=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid #F5F5F3'}}>
-        <div onClick={()=>db.updTask(c.id,{status:c.status==='Done'?'To Do':'Done'})}
-          style={{width:20,height:20,borderRadius:'50%',border:'2px solid '+(c.status==='Done'?'#3D7A5A':'#D0CEC9'),
-            background:c.status==='Done'?'#3D7A5A':'white',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
-          {c.status==='Done'&&<span style={{color:'white',fontSize:10,fontWeight:700}}>✓</span>}
-        </div>
-        <span style={{flex:1,fontSize:13,color:c.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:c.status==='Done'?'line-through':''}}>{c.title}</span>
-        <button onClick={()=>db.delTask(c.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14,padding:'0 4px'}}>🗑</button>
-      </div>)}
-      {/* Add subtask */}
-      <div style={{display:'flex',gap:6,marginTop:8}}>
-        <input value={newSub} onChange={e=>setNewSub(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addSub()}
-          placeholder="+ הוסף תת-משימה..."
-          style={{flex:1,height:36,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
-        {newSub.trim()&&<button onClick={addSub} style={{height:36,padding:'0 12px',background:'#3D7A5A',color:'white',border:'none',borderRadius:8,fontSize:13,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>הוסף</button>}
-      </div>
-    </div>
-    {/* Notes */}
-    {(task.notes||[]).length>0&&<div style={{marginBottom:12}}>
-      {(task.notes||[]).map(n=><div key={n.id} style={{background:'#F7F6F3',borderRadius:8,padding:'8px 10px',marginBottom:6}}>
-        <div style={{fontSize:11,color:'#8C8C8C',marginBottom:2}}>{n.author_name||'—'} · {n.date}</div>
-        <div style={{fontSize:13}}>{n.text}</div>
-      </div>)}
-    </div>}
-    {/* Add note */}
-    <div style={{display:'flex',gap:8}}>
-      <input value={note} onChange={e=>setNote(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addNote()}
-        placeholder="הוסף הערה..."
-        style={{flex:1,height:40,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:14,fontFamily:'Heebo,sans-serif'}}/>
-      <button onClick={addNote} style={{height:40,padding:'0 16px',background:'#3D7A5A',color:'white',border:'none',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>שלח</button>
-    </div>
-  </BottomSheet>;
-}
-
-// ── Mobile Project View ───────────────────────────────────────────────────
-function MobileProject({project,db,onBack}){
-  const [tab,setTab]=useState('tasks');
-  const [openTask,setOpenTask]=useState(null);
-  const [showAddTask,setShowAddTask]=useState(false);
-  const [newTaskTitle,setNewTaskTitle]=useState('');
-  const [newTaskSection,setNewTaskSection]=useState('');
-  const [newTaskParent,setNewTaskParent]=useState('');
-  const myTasks=db.tasks.filter(t=>t.project_id===project.id&&!t.parent_task_id);
-  const sections=[...new Set(myTasks.map(t=>t.section||''))];
-  const ms=project.milestones||[];
-  const prog=ms.length?Math.round(ms.filter(m=>m.completed).length/ms.length*100):0;
-  const allPartners=db.partners;
-
-  const addTask=()=>{
-    if(!newTaskTitle.trim())return;
-    db.addTask({project_id:project.id,title:newTaskTitle.trim(),section:newTaskSection||'',status:'To Do',priority:'Medium',parent_task_id:newTaskParent||null,depends_on:[],notes:[],description:''});
-    setNewTaskTitle('');setNewTaskSection('');setNewTaskParent('');setShowAddTask(false);
-  };
-
-  // Camera/file upload for docs
-  const fileRef=useRef();
-  const cameraRef=useRef();
-  const handleFile=async(file)=>{
-    if(!file)return;
-    db.addDoc({project_id:project.id,name:file.name,category:'Other',expiry:''});
-    alert('✅ '+file.name+' נוסף');
-  };
-
-  return<div style={{paddingBottom:80,minHeight:'100vh',background:'#F5F4F0'}}>
-    <MobileHeader title={project.name} onBack={onBack} right={
-      <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,
-        background:(STATUS_MAP[project.status]||{bg:'#F3F4F6'}).bg,
-        color:(STATUS_MAP[project.status]||{col:'#6B7280'}).col}}>
-        {(STATUS_MAP[project.status]||{heb:project.status}).heb}
-      </span>
-    }/>
-
-    {/* Progress bar */}
-    {ms.length>0&&<div style={{padding:'8px 16px',background:'white',borderBottom:'1px solid #F0EDE8'}}>
-      <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#8C8C8C',marginBottom:4}}>
-        <span>התקדמות</span><span style={{fontWeight:600,color:'#3D7A5A'}}>{prog}%</span>
-      </div>
-      <div style={{height:5,background:'#F0EDE8',borderRadius:3,overflow:'hidden'}}>
-        <div style={{height:'100%',background:'#3D7A5A',width:prog+'%',borderRadius:3,transition:'width .5s'}}/>
-      </div>
-    </div>}
-
-    {/* Tabs */}
-    <div style={{display:'flex',background:'white',borderBottom:'1px solid #E8E6E1',position:'sticky',top:53,zIndex:10}}>
-      {[{id:'tasks',l:'משימות',e:'☑️'},{id:'docs',l:'מסמכים',e:'📄'},{id:'info',l:'מידע',e:'ℹ️'}].map(t=>
-        <button key={t.id} onClick={()=>setTab(t.id)}
-          style={{flex:1,padding:'12px 0',border:'none',borderBottom:tab===t.id?'2px solid #3D7A5A':'2px solid transparent',
-            background:'none',cursor:'pointer',fontSize:13,fontWeight:tab===t.id?700:400,
-            color:tab===t.id?'#3D7A5A':'#8C8C8C',fontFamily:'Heebo,sans-serif',marginBottom:-1}}>
-          {t.e} {t.l}
-        </button>
-      )}
-    </div>
-
-    {/* Tasks tab */}
-    {tab==='tasks'&&<div>
-      {sections.map(sec=>{
-        const st=myTasks.filter(t=>(t.section||'')===sec);
-        if(!st.length)return null;
-        return<div key={sec||'__'}>
-          {sec&&<div style={{padding:'10px 16px 4px',fontSize:11,fontWeight:700,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.06em'}}>{sec}</div>}
-          <div style={{background:'white',marginBottom:4}}>
-            {st.map(t=><MobileTaskRow key={t.id} task={t} allTasks={db.tasks} db={db} onOpen={setOpenTask}/>)}
-          </div>
-        </div>;
-      })}
-      {myTasks.length===0&&<div style={{textAlign:'center',padding:48,color:'#B0B0B0'}}>
-        <div style={{fontSize:36,marginBottom:8}}>☑️</div><div>אין משימות עדיין</div>
-      </div>}
-      {/* FAB for add task */}
-      <button onClick={()=>setShowAddTask(true)}
-        style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',
-          height:48,padding:'0 24px',borderRadius:24,background:'#3D7A5A',color:'white',
-          border:'none',cursor:'pointer',fontSize:14,fontWeight:700,fontFamily:'Heebo,sans-serif',
-          boxShadow:'0 4px 16px rgba(61,122,90,.4)',zIndex:99,display:'flex',alignItems:'center',gap:8}}>
-        ＋ הוסף משימה
-      </button>
-    </div>}
-
-    {/* Docs tab */}
-    {tab==='docs'&&<div style={{padding:16}}>
-      {/* Upload buttons */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
-        <button onClick={()=>cameraRef.current?.click()}
-          style={{height:80,background:'white',border:'2px dashed #3D7A5A',borderRadius:12,cursor:'pointer',
-            display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,
-            fontSize:13,fontWeight:600,color:'#3D7A5A',fontFamily:'Heebo,sans-serif'}}>
-          <span style={{fontSize:28}}>📷</span>צלם
-        </button>
-        <button onClick={()=>fileRef.current?.click()}
-          style={{height:80,background:'white',border:'2px dashed #6366f1',borderRadius:12,cursor:'pointer',
-            display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,
-            fontSize:13,fontWeight:600,color:'#6366f1',fontFamily:'Heebo,sans-serif'}}>
-          <span style={{fontSize:28}}>📎</span>בחר קובץ
-        </button>
-      </div>
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>handleFile(e.target.files?.[0])}/>
-      <input ref={fileRef} type="file" accept="*/*" style={{display:'none'}} onChange={e=>handleFile(e.target.files?.[0])}/>
-      {/* Doc list */}
-      {db.docs.filter(d=>d.project_id===project.id).map(d=>{
-        const CC={Blueprint:'#EFF6FF|#1D4ED8',Permit:'#FFFBEB|#B45309',Contract:'#F5F3FF|#6D28D9',Report:'#ECFDF5|#065F46',Correspondence:'#FFF1F2|#BE123C',Other:'#F3F4F6|#6B7280'};
-        const [bg,col]=(CC[d.category]||CC.Other).split('|');
-        return<div key={d.id} className="mobile-card" style={{display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:22}}>📄</span>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</div>
-            <span style={{fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:999,background:bg,color:col}}>{d.category}</span>
-          </div>
-          <button onClick={()=>db.delDoc(d.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:16,padding:4}}>🗑</button>
-        </div>;
-      })}
-      {db.docs.filter(d=>d.project_id===project.id).length===0&&<div style={{textAlign:'center',padding:32,color:'#B0B0B0'}}>
-        <div style={{fontSize:32,marginBottom:8}}>📄</div><div>אין מסמכים</div>
-      </div>}
-    </div>}
-
-    {/* Info tab */}
-    {tab==='info'&&<div style={{padding:16}}>
-      <div style={{background:'white',borderRadius:14,border:'1px solid #E8E6E1',overflow:'hidden'}}>
-        {[
-          {l:'כתובת',v:project.address,e:'📍'},
-          {l:'לקוח',v:project.client_name,e:'👤'},
-          {l:'טלפון',v:project.client_phone,e:'📞'},
-          {l:'אימייל',v:project.client_email,e:'✉️'},
-          {l:'תקציב',v:project.budget?fmtM(project.budget):null,e:'💰'},
-          {l:'התחלה',v:project.start_date?fmtD(project.start_date):null,e:'📅'},
-          {l:'יעד סיום',v:project.target_completion?fmtD(project.target_completion):null,e:'🎯'},
-          {l:'ועדה',v:project.planning_committee,e:'🏛'},
-        ].filter(r=>r.v).map((r,i)=><div key={r.l} style={{padding:'12px 16px',borderTop:i>0?'1px solid #F5F5F3':'none',display:'flex',gap:10,alignItems:'center'}}>
-          <span style={{fontSize:16,flexShrink:0}}>{r.e}</span>
-          <div style={{flex:1}}>
-            <div style={{fontSize:11,color:'#9C9C9C',marginBottom:1}}>{r.l}</div>
-            <div style={{fontSize:13,fontWeight:500}}>{r.v}</div>
-          </div>
-        </div>)}
-      </div>
-      {/* Milestones */}
-      {ms.length>0&&<div style={{marginTop:16}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>אבני דרך</div>
-        {ms.map((m,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'white',borderRadius:10,marginBottom:6,border:'1px solid '+(m.completed?'#BBF7D0':'#E8E6E1')}}>
-          <div style={{width:22,height:22,borderRadius:'50%',border:'2px solid '+(m.completed?'#3D7A5A':'#D0CEC9'),background:m.completed?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-            {m.completed&&<span style={{color:'white',fontSize:10,fontWeight:700}}>✓</span>}
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:13,color:m.completed?'#8C8C8C':'#1A1A1A',textDecoration:m.completed?'line-through':''}}>{m.name}</div>
-            {m.payment_amount>0&&<div style={{fontSize:11,color:'#8C8C8C'}}>{fmtM(m.payment_amount)} · {m.payment_status==='Paid'?'שולם':'ממתין'}</div>}
-          </div>
-        </div>)}
-      </div>}
-    </div>}
-
-    {/* Task Sheet */}
-    {openTask&&<MobileTaskSheet task={openTask} allTasks={db.tasks} partners={allPartners} db={db} onClose={()=>setOpenTask(null)}/>}
-
-    {/* Add Task Sheet */}
-    <BottomSheet open={showAddTask} onClose={()=>setShowAddTask(false)} title="משימה חדשה">
-      <input autoFocus value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)}
-        onKeyDown={e=>e.key==='Enter'&&addTask()}
-        placeholder="שם המשימה..."
-        style={{width:'100%',height:48,padding:'0 14px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:16,fontFamily:'Heebo,sans-serif',marginBottom:10}}/>
-      {/* Category */}
-      <select value={newTaskSection} onChange={e=>{if(e.target.value==='__new__'){const n=window.prompt('שם קטגוריה:');if(n?.trim())setNewTaskSection(n.trim());}else setNewTaskSection(e.target.value);}}
-        style={{width:'100%',height:44,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:14,background:'white',fontFamily:'Heebo,sans-serif',marginBottom:10}}>
-        <option value="">ללא קטגוריה</option>
-        {sections.filter(s=>s).map(s=><option key={s} value={s}>{s}</option>)}
-        <option value="__new__">+ קטגוריה חדשה...</option>
-      </select>
-      {/* Parent task (optional) */}
-      <select value={newTaskParent} onChange={e=>setNewTaskParent(e.target.value)}
-        style={{width:'100%',height:44,padding:'0 12px',border:'1px solid #E8E6E1',borderRadius:10,fontSize:14,background:'white',fontFamily:'Heebo,sans-serif',marginBottom:12}}>
-        <option value="">משימה עצמאית</option>
-        {myTasks.map(t=><option key={t.id} value={t.id}>↳ {t.title}</option>)}
-      </select>
-      <button onClick={addTask} disabled={!newTaskTitle.trim()}
-        style={{width:'100%',height:48,background:'#3D7A5A',color:'white',border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:'Heebo,sans-serif',opacity:newTaskTitle.trim()?1:.5}}>
-        הוסף משימה
-      </button>
-    </BottomSheet>
-  </div>;
-}
-
-// ── Mobile All Tasks ──────────────────────────────────────────────────────
-function MobileAllTasks({db}){
-  const [filter,setFilter]=useState('all');
-  const [openTask,setOpenTask]=useState(null);
-  const tasks=db.tasks.filter(t=>!t.parent_task_id&&(filter==='all'||t.status===filter));
-  return<div style={{paddingBottom:80}}>
-    <MobileHeader title="משימות"/>
-    {/* Filter pills */}
-    <div style={{display:'flex',gap:8,padding:'10px 16px',overflowX:'auto',background:'white',borderBottom:'1px solid #F0EDE8'}}>
-      {[{id:'all',l:'הכל'},{id:'To Do',l:'להתחלה'},{id:'In Progress',l:'בתהליך'},{id:'Done',l:'הושלם'}].map(f=>
-        <button key={f.id} onClick={()=>setFilter(f.id)}
-          style={{height:30,padding:'0 14px',borderRadius:999,border:'none',cursor:'pointer',fontFamily:'Heebo,sans-serif',
-            fontSize:12,fontWeight:filter===f.id?700:400,whiteSpace:'nowrap',
-            background:filter===f.id?'#1A1A1A':'#F3F4F6',color:filter===f.id?'white':'#6B6B6B'}}>
-          {f.l}
-        </button>
-      )}
-    </div>
-    <div style={{background:'white'}}>
-      {tasks.map(t=>{
-        const proj=db.projects.find(p=>p.id===t.project_id);
-        return<div key={t.id} className="task-row-mobile" onClick={()=>setOpenTask(t)}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:500,color:t.status==='Done'?'#B0B0B0':'#1A1A1A',
-              textDecoration:t.status==='Done'?'line-through':'',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</div>
-            {proj&&<div style={{fontSize:11,color:'#9C9C9C',marginTop:2}}>{proj.name}</div>}
-          </div>
-          <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,flexShrink:0,
-            background:t.status==='Done'?'#ECFDF5':t.status==='In Progress'?'#FFFBEB':'#F3F4F6',
-            color:t.status==='Done'?'#065F46':t.status==='In Progress'?'#B45309':'#6B7280'}}>
-            {t.status==='Done'?'הושלם':t.status==='In Progress'?'בתהליך':'להתחלה'}
-          </span>
-        </div>;
-      })}
-      {tasks.length===0&&<div style={{textAlign:'center',padding:48,color:'#B0B0B0'}}>
-        <div style={{fontSize:36,marginBottom:8}}>☑️</div><div>אין משימות</div>
-      </div>}
-    </div>
-    {openTask&&<MobileTaskSheet task={openTask} allTasks={db.tasks} partners={db.partners} db={db} onClose={()=>setOpenTask(null)}/>}
-  </div>;
-}
-
-// ── Mobile Settings ───────────────────────────────────────────────────────
-function MobileSettings({db,currentUser,loggedEmail}){
-  return<div style={{paddingBottom:80}}>
-    <MobileHeader title="הגדרות"/>
-    <div style={{padding:16}}>
-      {/* User card */}
-      <div style={{background:'white',borderRadius:14,border:'1px solid #E8E6E1',padding:16,marginBottom:12,display:'flex',alignItems:'center',gap:12}}>
-        <div style={{width:48,height:48,borderRadius:'50%',background:currentUser?.color||'#3D7A5A',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:20,flexShrink:0}}>
-          {currentUser?.name?.[0]||'א'}
-        </div>
-        <div>
-          <div style={{fontSize:15,fontWeight:700}}>{currentUser?.name||loggedEmail}</div>
-          <div style={{fontSize:12,color:'#8C8C8C'}}>{loggedEmail}</div>
-        </div>
-      </div>
-      {/* Sync status */}
-      <div style={{background:'white',borderRadius:14,border:'1px solid #E8E6E1',padding:14,marginBottom:12}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>סנכרון נתונים</div>
-        <div style={{fontSize:12,color:db.driveError?'#DC2626':db.driveSyncing?'#B45309':'#3D7A5A'}}>
-          {db.driveError?'⚠ שגיאה בשמירה':db.driveSyncing?'🔄 שומר...':'✅ מסונכרן'}
-        </div>
-      </div>
-      {/* Logout */}
-      <button onClick={async()=>{await gSignOut();window.location.reload();}}
-        style={{width:'100%',height:48,background:'#FEF2F2',color:'#DC2626',border:'1px solid #FECACA',
-          borderRadius:12,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>
-        התנתק
-      </button>
-    </div>
-  </div>;
-}
-
-// ── Mobile App Shell ──────────────────────────────────────────────────────
-function MobileApp({db,currentUser,loggedEmail}){
-  const [tab,setTab]=useState('projects');
-  const [openPid,setOpenPid]=useState(null);
-  const [showNew,setShowNew]=useState(false);
-  const proj=db.projects.find(p=>p.id===openPid);
-
-  const handleTab=t=>{setTab(t);setOpenPid(null);};
-
-  return<div style={{minHeight:'100vh',background:'#F5F4F0',direction:'rtl',fontFamily:'Heebo,sans-serif'}}>
-    {/* Page content */}
-    {openPid&&proj
-      ?<MobileProject project={proj} db={db} onBack={()=>setOpenPid(null)}/>
-      :tab==='projects'?<MobileProjects db={db} onOpenProject={id=>{setOpenPid(id);setTab('projects');}} onNew={()=>setShowNew(true)}/>
-      :tab==='tasks'?<MobileAllTasks db={db}/>
-      :tab==='docs'?<div style={{paddingBottom:80}}><MobileHeader title="מסמכים"/><div style={{padding:32,textAlign:'center',color:'#B0B0B0'}}><div style={{fontSize:40,marginBottom:8}}>📄</div><div>בחר פרויקט כדי לנהל מסמכים</div></div></div>
-      :<MobileSettings db={db} currentUser={currentUser} loggedEmail={loggedEmail}/>
-    }
-    {/* Bottom tab bar */}
-    <MobileTabBar tab={openPid?'projects':tab} setTab={handleTab} onAdd={()=>setShowNew(true)}/>
-    {/* New project modal */}
-    <NewProjectModal open={showNew} onClose={()=>setShowNew(false)} db={db}/>
-  </div>;
-}
-
-
-// ─── Task Filter Editor Modal ─────────────────────────────────────────────────
-function FilterEditorModal({db,partners,currentUser,loggedEmail,onSave,onClose}){
-  const [name,setName]=useState('');
-  const [icon,setIcon]=useState('☑️');
-  const [assignee,setAssignee]=useState('__me__');
-  const [status,setStatus]=useState('');
-  const [priority,setPriority]=useState('');
-  const [project,setProject]=useState('');
-  const ICONS=['☑️','⚡','🔴','🟡','🟢','👤','📁','🎯','🔧','📋'];
-  const save=()=>{
-    if(!name.trim())return;
-    const resolvedAssignee=assignee==='__me__'
-      ?(partners.find(p=>p.email===loggedEmail)||partners[0])?.id||''
-      :assignee;
-    onSave({name:name.trim(),icon,assignee:resolvedAssignee,status,priority,project});
-  };
-  return<Modal open onClose={onClose} title="פילטר חדש">
-    <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      {/* Icon picker */}
-      <div>
-        <span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:6}}>אייקון</span>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {ICONS.map(ic=><button key={ic} onClick={()=>setIcon(ic)}
-            style={{width:36,height:36,borderRadius:8,border:'2px solid '+(icon===ic?'#3D7A5A':'#E8E6E1'),
-              background:icon===ic?'#E8EDE9':'white',cursor:'pointer',fontSize:18}}>
-            {ic}
-          </button>)}
-        </div>
-      </div>
-      <I label="שם הפילטר" value={name} onChange={e=>setName(e.target.value)} placeholder='למשל: המשימות שלי, דחוף, בתהליך...'/>
-      <SE label="אחראי" value={assignee} onChange={e=>setAssignee(e.target.value)}>
-        <option value="">כל האחראים</option>
-        <option value="__me__">אני</option>
-        {partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-      </SE>
-      <SE label="סטטוס" value={status} onChange={e=>setStatus(e.target.value)}>
-        <option value="">כל הסטטוסים</option>
-        <option value="To Do">להתחלה</option>
-        <option value="In Progress">בתהליך</option>
-        <option value="Done">הושלם</option>
-        <option value="Blocked">חסום</option>
-      </SE>
-      <SE label="עדיפות" value={priority} onChange={e=>setPriority(e.target.value)}>
-        <option value="">כל העדיפויות</option>
-        <option value="High">גבוהה</option>
-        <option value="Medium">בינונית</option>
-        <option value="Low">נמוכה</option>
-      </SE>
-      <SE label="פרויקט" value={project} onChange={e=>setProject(e.target.value)}>
-        <option value="">כל הפרויקטים</option>
-        {db.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-      </SE>
-      <div style={{display:'flex',gap:8,paddingTop:4}}>
-        <Btn onClick={save} disabled={!name.trim()} sx={{flex:1}}>שמור פילטר</Btn>
-        <Btn v="ghost" onClick={onClose}>ביטול</Btn>
-      </div>
-    </div>
-  </Modal>;
-}
-
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function DriveBanner({db}){
   const fmt=d=>{if(!d)return'';const dt=new Date(d);return dt.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});};
@@ -4120,7 +3874,6 @@ function DriveLoginScreen({onLogin}){
 
 function App(){
   const db=useApp();
-  const isMobile=useIsMobile();
   const [page,setPage]=useState(()=>{
     // Restore page from history state on load
     const s=window.history.state;
@@ -4139,10 +3892,6 @@ function App(){
   const setCurrentUserId = ()=>{}; // no-op, kept for prop compatibility
   const [preTpl,setPreTpl]=useState('');
   const [sbFilter,setSBF]=useState('all:All');
-  const [taskFilters,setTaskFilters]=useState(()=>{try{return JSON.parse(localStorage.getItem('arch_task_filters')||'[]');}catch{return[];}});
-  const [activeTaskFilter,setActiveTaskFilter]=useState(null);
-  const [showFilterEditor,setShowFilterEditor]=useState(false);
-  const saveTaskFilters=f=>{setTaskFilters(f);try{localStorage.setItem('arch_task_filters',JSON.stringify(f));}catch{}};
   const proj=db.projects.find(p=>p.id===pid);
   const [loggedIn,setLoggedIn]=useState(false);
   const [autoLogging,setAutoLogging]=useState(true);
@@ -4150,17 +3899,22 @@ function App(){
   // Try silent login on first render
   useEffect(()=>{
     let cancelled=false;
-    (async()=>{
+    const tryAuto=async()=>{
       try{
+        // Small delay to ensure sessionStorage is readable and React is mounted
+        await new Promise(r=>setTimeout(r,100));
+        if(cancelled) return;
+        // Try to restore Supabase session (handles URL hash + sessionStorage)
         const ok=await gTrySilentSignIn();
         if(!cancelled){
           if(ok){ setLoggedIn(true); await db.driveLoad(); }
           setAutoLogging(false);
         }
       }catch(e){ if(!cancelled) setAutoLogging(false); }
-    })();
+    };
+    tryAuto();
     return()=>{cancelled=true;};
-  },[db.driveLoad]);
+  },[]);
 
   const handleLogin=async()=>{
     setLoggedIn(true);
@@ -4189,9 +3943,6 @@ function App(){
   );
 
   if(!loggedIn) return <DriveLoginScreen onLogin={handleLogin}/>;
-
-  // Mobile layout
-  if(isMobile) return <MobileApp db={db} currentUser={currentUser} loggedEmail={loggedEmail}/>;
 
   // Push to browser history on navigation
   const navTo=(pg,id=null)=>{
@@ -4257,30 +4008,6 @@ function App(){
         </button>)}
       </div>
 
-      {/* Task Filters */}
-      <div style={{padding:"8px 10px",borderBottom:"1px solid rgba(255,255,255,.08)",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-          <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.3)",textTransform:"uppercase",letterSpacing:".1em"}}>פילטרי משימות</div>
-          <button onClick={()=>setShowFilterEditor(true)} style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.3)",fontSize:16,lineHeight:1,padding:2}} title="הוסף פילטר">+</button>
-        </div>
-        {taskFilters.map(f=><button key={f.id}
-          onClick={()=>{setActiveTaskFilter(activeTaskFilter===f.id?null:f.id);navTo('tasks',null);}}
-          style={{width:"100%",textAlign:"right",padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,
-            background:activeTaskFilter===f.id?"rgba(61,122,90,.35)":"transparent",
-            color:activeTaskFilter===f.id?"#A8D5BA":"rgba(255,255,255,.5)",
-            fontFamily:"Heebo,sans-serif",marginBottom:2,display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
-          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{f.icon} {f.name}</span>
-          <span onClick={e=>{e.stopPropagation();saveTaskFilters(taskFilters.filter(x=>x.id!==f.id));if(activeTaskFilter===f.id)setActiveTaskFilter(null);}}
-            style={{color:"rgba(255,255,255,.2)",fontSize:13,flexShrink:0,lineHeight:1}} title="מחק פילטר">×</span>
-        </button>)}
-        {taskFilters.length===0&&<div style={{fontSize:11,color:"rgba(255,255,255,.2)",padding:"4px 2px",fontStyle:"italic"}}>לחץ + להוסיף פילטר</div>}
-      </div>
-
-      {/* Filter editor modal */}
-      {showFilterEditor&&<FilterEditorModal db={db} partners={db.partners} currentUser={currentUser} loggedEmail={loggedEmail}
-        onSave={f=>{saveTaskFilters([...taskFilters,{...f,id:uid()}]);setShowFilterEditor(false);}}
-        onClose={()=>setShowFilterEditor(false)}/>}
-
       <div style={{padding:"8px 8px",flexShrink:0}}>
         <button onClick={()=>setShowNew(true)} style={{width:"100%",textAlign:"right",display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderRadius:8,border:"1px dashed rgba(255,255,255,.2)",cursor:"pointer",fontSize:12,color:"rgba(255,255,255,.4)",background:"transparent",fontFamily:"Heebo,sans-serif",transition:"all .12s"}}>
           <span>+</span> פרויקט חדש
@@ -4302,7 +4029,7 @@ function App(){
       <div className="fade" key={page+pid}>
         {page==='dashboard'  && <Dashboard db={db} nav={nav} onNew={()=>setShowNew(true)} onOpen={openProj} setPortalPid={setPortalPid}/>}
         {page==='project'    && proj && <ProjectDetail project={proj} db={db} onBack={()=>{setPage('dashboard');setPID(null);}} currentUser={currentUser} onOpenPortal={()=>setPortalPid(proj.id)} nav={nav}/>}
-        {page==='tasks'      && <AllTasksPage db={db} nav={nav} activeFilter={activeTaskFilter?taskFilters.find(f=>f.id===activeTaskFilter):null}/>}
+        {page==='tasks'      && <AllTasksPage db={db} nav={nav}/>}
         {page==='leads'      && <LeadsPage db={db} nav={nav}/>}
         {page==='crm'        && <CRMPage db={db} nav={nav} currentUser={currentUser}/>}
         {page==='reports'     && <ReportsPage db={db} nav={nav}/>}
@@ -4318,7 +4045,14 @@ function App(){
   </div>;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  (()=>{
+    // If URL has ?book=TOKEN → show public booking page, no login needed
+    const bookToken=new URLSearchParams(window.location.search).get('book');
+    if(bookToken) return <BookingPage token={bookToken}/>;
+    return <App/>;
+  })()
+);
 
 </script>
 </body>

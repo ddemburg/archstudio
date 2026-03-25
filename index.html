@@ -69,8 +69,11 @@ async function gSignIn() {
 // Get session from URL hash (after OAuth redirect) or from localStorage
 async function gTrySilentSignIn() {
   // 1. Check URL hash for new session (after redirect from Google)
-  const hash = window.location.hash;
+  // IMPORTANT: Save hash immediately — GitHub Pages may reload and lose it
+  const hash = window.location.hash || sessionStorage.getItem('arch_pending_hash') || '';
   if (hash && hash.includes('access_token')) {
+    // Store it in case of page reload before we finish processing
+    try { sessionStorage.setItem('arch_pending_hash', hash); } catch(e) {}
     const params = new URLSearchParams(hash.substring(1));
     const accessToken  = params.get('access_token');
     const refreshToken = params.get('refresh_token');
@@ -99,6 +102,7 @@ async function gTrySilentSignIn() {
         try {
           sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
           sessionStorage.setItem('arch_email', _sbUserEmail);
+          sessionStorage.removeItem('arch_pending_hash'); // clean up
         } catch(e) {}
         // Clean URL hash
         window.history.replaceState(null, '', window.location.pathname);

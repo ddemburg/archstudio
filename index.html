@@ -42,6 +42,7 @@ let _sbSession   = null;   // full Supabase session object
 let _sbUserEmail = '';
 let _gAccessToken = '';    // kept for Google Drive backup only
 let _calToken = '';        // Google Calendar provider_token
+let _urlCode  = new URLSearchParams(window.location.search).get('code') || null; // captured before React mounts
 
 // ── Supabase Auth helpers ──────────────────────────────────────────────────────
 
@@ -119,9 +120,9 @@ async function _exchangeCodeForSession(code) {
 
 // Get session — check for PKCE ?code= param first, then sessionStorage
 async function gTrySilentSignIn() {
-  // 1. Check for PKCE auth code in URL query params
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
+  // 1. Check for PKCE auth code — captured at script load before React effects strip the URL
+  const code = _urlCode;
+  _urlCode = null; // consume once so it can't be reused
 
   if (code) {
     // Clean URL immediately

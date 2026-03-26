@@ -494,6 +494,48 @@ async function confirmMeetingSlot(token,slotId,guestName,guestEmail){
   }
 }
 
+async function processConfirmedMeetings(){
+  if(!gCalReady()) return;
+  if(!_sbUserEmail){const s=sessionStorage.getItem('arch_email');if(s)_sbUserEmail=s;}
+  const member=await sbGetMember(_sbUserEmail);
+  if(!member) return;
+  const rows=await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
+  const row=rows?.[0];
+  if(!row) return;
+  const data=row.data||{};
+  const meetings=data.meetings||{};
+  let changed=false;
+  for(const token of Object.keys(meetings)){
+    const req=meetings[token];
+    if(!req.confirmed||req.calendared) continue;
+    const slot=(req.slots||[]).find(s=>s.id===req.confirmed.slotId);
+    if(!slot) continue;
+    try{
+      const start=new Date(slot.date);
+      start.setHours(slot.hour,0,0,0);
+      const end=new Date(start);
+      end.setMinutes(end.getMinutes()+(slot.duration||60));
+      await gCalCreateEvent({
+        title:req.subject||`פגישה — ${req.projectName||''}`,
+        description:`פגישה עם ${req.confirmed.guestName}${req.note?'\n\n'+req.note:''}`,
+        startISO:start.toISOString(),
+        endISO:end.toISOString(),
+        attendeeEmail:req.confirmed.guestEmail||req.toEmail||'',
+        location:req.location||'',
+      });
+      req.calendared=true;
+      changed=true;
+    }catch(e){console.warn('processConfirmedMeetings:',e);}
+  }
+  if(changed){
+    await sbQuery(`office_data?office_id=eq.${member.office_id}`,{
+      method:'PATCH',
+      headers:sbHeaders({'Prefer':'return=minimal'}),
+      body:JSON.stringify({data:{...data,meetings},updated_at:new Date().toISOString()}),
+    });
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // BOOKING PAGE — shown when URL has ?book=TOKEN (no login needed)
 // ══════════════════════════════════════════════════════════════════════════
@@ -1110,6 +1152,7 @@ function useApp(){
       }
       setDriveReady(true);
       apiGetMembers().then(m=>setOfficeMembers(m||[])).catch(()=>{});
+      processConfirmedMeetings().catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
   };

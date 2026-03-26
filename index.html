@@ -257,7 +257,7 @@ async function sbQuery(path, options={}) {
 async function sbGetMember(email) {
   if (!email) return null;
   const rows = await sbQuery(
-    `office_members?email=eq.${encodeURIComponent(email)}&active=eq.true&select=*,offices(name)&limit=1`
+    `office_members?email=eq.${encodeURIComponent(email)}&active=eq.true&limit=1`
   );
   return rows?.[0] || null;
 }

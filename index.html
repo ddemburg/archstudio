@@ -55,71 +55,96 @@ function sbAuthHeaders(extra) {
   };
 }
 
-// Sign in with Google via Supabase Auth (redirects back to app)
+// ── PKCE helpers ──────────────────────────────────────────────────────────────
+async function _generateCodeVerifier() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return btoa(String.fromCharCode(...array)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+async function _generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+// Sign in with Google via Supabase Auth — PKCE flow
 async function gSignIn() {
   const redirectTo = window.location.origin + window.location.pathname;
   const scopes = [
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/calendar.events',
   ].join(' ');
-  // Use implicit flow — tokens come back in URL hash
-  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}&scopes=${encodeURIComponent(scopes)}&response_type=token`;
+
+  // Generate PKCE code verifier + challenge
+  const codeVerifier = await _generateCodeVerifier();
+  const codeChallenge = await _generateCodeChallenge(codeVerifier);
+
+  // Save verifier — we need it when exchanging the code
+  sessionStorage.setItem('arch_pkce_verifier', codeVerifier);
+
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize`
+    + `?provider=google`
+    + `&redirect_to=${encodeURIComponent(redirectTo)}`
+    + `&scopes=${encodeURIComponent(scopes)}`
+    + `&code_challenge=${codeChallenge}`
+    + `&code_challenge_method=S256`;
+
   return new Promise(()=>{});
 }
 
-// Get session from URL hash (after OAuth redirect) or from localStorage
+// Exchange PKCE code for session tokens
+async function _exchangeCodeForSession(code) {
+  const codeVerifier = sessionStorage.getItem('arch_pkce_verifier');
+  if (!codeVerifier) throw new Error('No code verifier found');
+
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auth_code: code, code_verifier: codeVerifier }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error('Token exchange failed: ' + err);
+  }
+  return resp.json();
+}
+
+// Get session — check for PKCE ?code= param first, then sessionStorage
 async function gTrySilentSignIn() {
-  // 1. Check BOTH hash and search params — GitHub Pages sometimes moves hash to search
-  const rawHash = window.location.hash || '';
-  const rawSearch = window.location.search || '';
+  // 1. Check for PKCE auth code in URL query params
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
 
-  // Save immediately before anything clears them
-  if (rawHash && rawHash.includes('access_token')) {
-    try { sessionStorage.setItem('arch_pending_hash', rawHash); } catch(e) {}
-  }
-  if (rawSearch && rawSearch.includes('access_token')) {
-    try { sessionStorage.setItem('arch_pending_hash', rawSearch); } catch(e) {}
-  }
-
-  const pending = sessionStorage.getItem('arch_pending_hash') || rawHash || rawSearch || '';
-  const hash = pending.includes('access_token') ? pending : '';
-
-  if (hash && hash.includes('access_token')) {
-    const clean = hash.startsWith('#') || hash.startsWith('?') ? hash.substring(1) : hash;
-    const params = new URLSearchParams(clean);
-    const accessToken  = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    const expiresIn    = parseInt(params.get('expires_in') || '3600');
-    if (accessToken) {
-      // Get user info from Supabase
-      const userResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + accessToken }
-      });
-      if (userResp.ok) {
-        const userData = await userResp.json();
+  if (code) {
+    // Clean URL immediately
+    window.history.replaceState(null, '', window.location.pathname);
+    try {
+      const data = await _exchangeCodeForSession(code);
+      if (data.access_token) {
         _sbSession = {
-          access_token:  accessToken,
-          refresh_token: refreshToken,
-          expires_at:    Date.now() + expiresIn * 1000,
-          user:          userData
+          access_token:  data.access_token,
+          refresh_token: data.refresh_token,
+          expires_at:    Date.now() + (data.expires_in || 3600) * 1000,
+          user:          data.user,
         };
-        _sbUserEmail = userData.email || '';
-        // Save provider_token (Google Calendar token)
-        const providerToken = params.get('provider_token');
-        if (providerToken) {
-          _calToken = providerToken;
-          try { sessionStorage.setItem('arch_cal_token', providerToken); } catch(e) {}
+        _sbUserEmail = data.user?.email || '';
+        // Save provider_token (Google Calendar)
+        if (data.provider_token) {
+          _calToken = data.provider_token;
+          try { sessionStorage.setItem('arch_cal_token', data.provider_token); } catch(e) {}
         }
-        // Save session to sessionStorage
         try {
           sessionStorage.setItem('arch_session', JSON.stringify(_sbSession));
           sessionStorage.setItem('arch_email', _sbUserEmail);
-          sessionStorage.removeItem('arch_pending_hash');
+          sessionStorage.removeItem('arch_pkce_verifier');
         } catch(e) {}
-        // Clean URL
-        window.history.replaceState(null, '', window.location.pathname);
         return true;
       }
+    } catch(e) {
+      console.error('PKCE exchange error:', e);
     }
   }
 
@@ -128,7 +153,6 @@ async function gTrySilentSignIn() {
     const saved = sessionStorage.getItem('arch_session');
     if (saved) {
       const session = JSON.parse(saved);
-      // Check not expired (with 60s buffer)
       if (session.expires_at > Date.now() + 60000) {
         _sbSession   = session;
         _sbUserEmail = session.user?.email || sessionStorage.getItem('arch_email') || '';
@@ -136,7 +160,6 @@ async function gTrySilentSignIn() {
         if (calTok) _calToken = calTok;
         return true;
       }
-      // Try refresh token
       if (session.refresh_token) {
         const refreshed = await _sbRefreshSession(session.refresh_token);
         if (refreshed) return true;

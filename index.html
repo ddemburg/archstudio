@@ -441,57 +441,38 @@ async function gCalCreateEvent({title,description,startISO,endISO,attendeeEmail,
   return res.json();
 }
 
-// ── Save/load booking requests via Supabase (office_data → meetings key) ──────
+// ── Save/load booking requests via meeting_requests table ──────────────────────
 async function saveMeetingRequest(req){
-  // req = { token, slots, note, subject, meetingType, location, projectName, hostEmail, createdAt }
   if(!_sbUserEmail){const s=sessionStorage.getItem('arch_email');if(s)_sbUserEmail=s;}
   const member=await sbGetMember(_sbUserEmail);
   if(!member) throw new Error('Not a member');
-  const rows=await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
-  const data=rows?.[0]?.data||{};
-  const meetings=data.meetings||{};
-  meetings[req.token]=req;
-  await sbQuery(`office_data?office_id=eq.${member.office_id}`,{
-    method:'PATCH',
+  await sbQuery('meeting_requests',{
+    method:'POST',
     headers:sbHeaders({'Prefer':'return=minimal'}),
-    body:JSON.stringify({data:{...data,meetings},updated_at:new Date().toISOString()}),
+    body:JSON.stringify({token:req.token,office_id:member.office_id,data:req}),
   });
 }
 
 async function loadMeetingRequest(token){
-  // Public read — uses anon key, no auth needed
-  const res=await fetch(`${SUPABASE_URL}/rest/v1/office_data?select=data`,{
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/meeting_requests?token=eq.${encodeURIComponent(token)}&limit=1`,{
     headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON},
   });
   if(!res.ok) return null;
   const rows=await res.json();
-  for(const row of rows){
-    const meetings=row.data?.meetings||{};
-    if(meetings[token]) return meetings[token];
-  }
-  return null;
+  if(!rows?.[0]) return null;
+  const req=rows[0].data||{};
+  if(rows[0].confirmed) req.confirmed=rows[0].confirmed;
+  return req;
 }
 
 async function confirmMeetingSlot(token,slotId,guestName,guestEmail){
-  // Mark chosen slot, remove token (one-time use)
-  const res=await fetch(`${SUPABASE_URL}/rest/v1/office_data?select=id,data,office_id`,{
-    headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON},
+  const confirmed={slotId,guestName,guestEmail,confirmedAt:new Date().toISOString()};
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/meeting_requests?token=eq.${encodeURIComponent(token)}`,{
+    method:'PATCH',
+    headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body:JSON.stringify({confirmed}),
   });
-  if(!res.ok) return;
-  const rows=await res.json();
-  for(const row of rows){
-    const meetings=row.data?.meetings||{};
-    if(meetings[token]){
-      const req=meetings[token];
-      req.confirmed={slotId,guestName,guestEmail,confirmedAt:new Date().toISOString()};
-      await fetch(`${SUPABASE_URL}/rest/v1/office_data?id=eq.${row.id}`,{
-        method:'PATCH',
-        headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON,'Content-Type':'application/json','Prefer':'return=minimal'},
-        body:JSON.stringify({data:{...row.data,meetings},updated_at:new Date().toISOString()}),
-      });
-      return req;
-    }
-  }
+  if(!res.ok) throw new Error('שגיאה באישור הפגישה');
 }
 
 async function processConfirmedMeetings(){
@@ -499,16 +480,13 @@ async function processConfirmedMeetings(){
   if(!_sbUserEmail){const s=sessionStorage.getItem('arch_email');if(s)_sbUserEmail=s;}
   const member=await sbGetMember(_sbUserEmail);
   if(!member) return;
-  const rows=await sbQuery(`office_data?office_id=eq.${member.office_id}&limit=1`);
-  const row=rows?.[0];
-  if(!row) return;
-  const data=row.data||{};
-  const meetings=data.meetings||{};
-  let changed=false;
-  for(const token of Object.keys(meetings)){
-    const req=meetings[token];
-    if(!req.confirmed||req.calendared) continue;
-    const slot=(req.slots||[]).find(s=>s.id===req.confirmed.slotId);
+  const rows=await sbQuery(`meeting_requests?office_id=eq.${member.office_id}&confirmed=not.is.null`);
+  if(!rows?.length) return;
+  for(const row of rows){
+    if(row.data?.calendared) continue;
+    const req=row.data||{};
+    const confirmed=row.confirmed;
+    const slot=(req.slots||[]).find(s=>s.id===confirmed.slotId);
     if(!slot) continue;
     try{
       const start=new Date(slot.date);
@@ -517,22 +495,18 @@ async function processConfirmedMeetings(){
       end.setMinutes(end.getMinutes()+(slot.duration||60));
       await gCalCreateEvent({
         title:req.subject||`פגישה — ${req.projectName||''}`,
-        description:`פגישה עם ${req.confirmed.guestName}${req.note?'\n\n'+req.note:''}`,
+        description:`פגישה עם ${confirmed.guestName}${req.note?'\n\n'+req.note:''}`,
         startISO:start.toISOString(),
         endISO:end.toISOString(),
-        attendeeEmail:req.confirmed.guestEmail||req.toEmail||'',
+        attendeeEmail:confirmed.guestEmail||req.toEmail||'',
         location:req.location||'',
       });
-      req.calendared=true;
-      changed=true;
+      await sbQuery(`meeting_requests?token=eq.${encodeURIComponent(row.token)}`,{
+        method:'PATCH',
+        headers:sbHeaders({'Prefer':'return=minimal'}),
+        body:JSON.stringify({data:{...req,calendared:true}}),
+      });
     }catch(e){console.warn('processConfirmedMeetings:',e);}
-  }
-  if(changed){
-    await sbQuery(`office_data?office_id=eq.${member.office_id}`,{
-      method:'PATCH',
-      headers:sbHeaders({'Prefer':'return=minimal'}),
-      body:JSON.stringify({data:{...data,meetings},updated_at:new Date().toISOString()}),
-    });
   }
 }
 

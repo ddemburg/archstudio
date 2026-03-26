@@ -147,6 +147,12 @@ async function gTrySilentSignIn() {
           sessionStorage.setItem('arch_email', _sbUserEmail);
           sessionStorage.removeItem('arch_pkce_verifier');
         } catch(e) {}
+        // Ensure member record exists and update profile picture/name from Google
+        try {
+          const name    = data.user?.user_metadata?.full_name || data.user?.email || '';
+          const picture = data.user?.user_metadata?.avatar_url || '';
+          await sbEnsureMember(_sbUserEmail, name, picture);
+        } catch(e) { console.warn('sbEnsureMember failed:', e.message); }
         return true;
       }
     } catch(e) {
@@ -3725,7 +3731,8 @@ function AppSettingsPage({db}){
 
   useEffect(()=>{
     apiGetMembers().then(m=>{setMembers(m||[]);setLoadingMembers(false);}).catch(()=>setLoadingMembers(false));
-    sbGetMember(sessionStorage.getItem('arch_email')).then(setCurrentMember).catch(()=>{});
+    const meEmail = _sbUserEmail || sessionStorage.getItem('arch_email');
+    sbGetMember(meEmail).then(setCurrentMember).catch(e=>console.error('sbGetMember failed:',e.message));
   },[]);
 
   const isAdmin=currentMember?.role==='admin';

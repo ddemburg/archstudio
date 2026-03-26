@@ -136,7 +136,7 @@ async function gTrySilentSignIn() {
           expires_at:    Date.now() + (data.expires_in || 3600) * 1000,
           user:          data.user,
         };
-        _sbUserEmail = data.user?.email || '';
+        _sbUserEmail = (data.user?.email || '').toLowerCase();
         // Save provider_token (Google Calendar)
         if (data.provider_token) {
           _calToken = data.provider_token;
@@ -167,7 +167,7 @@ async function gTrySilentSignIn() {
       const session = JSON.parse(saved);
       if (session.expires_at > Date.now() + 60000) {
         _sbSession   = session;
-        _sbUserEmail = session.user?.email || sessionStorage.getItem('arch_email') || '';
+        _sbUserEmail = (session.user?.email || sessionStorage.getItem('arch_email') || '').toLowerCase();
         const calTok = sessionStorage.getItem('arch_cal_token');
         if (calTok) _calToken = calTok;
         return true;

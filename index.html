@@ -1075,7 +1075,6 @@ function useApp(){
   const [reqs,setR]=useState([]);
   const [approvs,setA]=useState([]);
   const [committees,setC]=useState([]);
-  const [partners,setU]=useState([]);
   const [templates,setTpl]=useState([]);
   const [crm,setCRM]=useState([]);
   const [leads,setLeads]=useState([]);
@@ -1099,7 +1098,6 @@ function useApp(){
         if(saved.reqs)       setR(saved.reqs);
         if(saved.approvs)    setA(saved.approvs);
         if(saved.committees) setC(saved.committees);
-        if(saved.partners)   setU(saved.partners);
         if(saved.templates)  setTpl(saved.templates);
         if(saved.crm)        setCRM(saved.crm);
         if(saved.leads)      setLeads(saved.leads);
@@ -1108,34 +1106,24 @@ function useApp(){
       // If no data in Drive yet, load seed data as starting point
       if(!saved){
         setP(SPROJ); setT(STK); setD(SDK); setR(SRK); setA(SAK);
-        setU(SP); setCRM(SCRM); setLeads(SLEADS);
+        setCRM(SCRM); setLeads(SLEADS);
       }
       setDriveReady(true);
-      apiGetMembers().then(m=>{
-      const members=m||[];
-      setOfficeMembers(members);
-      // Sync partners from office members — partners is now derived from office_members
-      setU(existingPartners=>{
-        return members.map((om,i)=>{
-          // Try to find existing partner by email to preserve ID and color
-          const existing=existingPartners.find(p=>p.email===om.email);
-          return{
-            id: existing?.id||om.id||uid(),
-            name: om.name||om.email,
-            role: om.role==='admin'?'שותף בכיר':om.role==='manager'?'מנהל שותף':om.role==='drafter'?'עובד':'לקוח',
-            color: existing?.color||COLORS[i%COLORS.length],
-            email: om.email,
-            picture: om.picture||'',
-            phone: existing?.phone||'',
-          };
-        });
-      });
-    }).catch(()=>{});
+      apiGetMembers().then(m=>setOfficeMembers(m||[])).catch(()=>{});
     }catch(e){ setDriveError('שגיאה בטעינה'); }
     finally{ setDriveSyncing(false); }
   };
 
-  const getState=()=>({projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads});
+  const partners=(officeMembers||[]).map((om,i)=>({
+    id:String(om.id),
+    name:om.name||om.email,
+    role:om.role,
+    color:COLORS[i%COLORS.length],
+    email:om.email,
+    picture:om.picture||'',
+  }));
+
+  const getState=()=>({projects,tasks,docs,reqs,approvs,committees,templates,crm,leads});
 
   const driveSave=async(state)=>{
     if(!gIsSignedIn())return;
@@ -1271,9 +1259,6 @@ function useApp(){
     addCommittee:c=>setC(cs=>[...cs,{...c,id:uid()}]),
     updCommittee:(id,ch)=>setC(cs=>cs.map(c=>c.id===id?{...c,...ch}:c)),
     delCommittee:id=>setC(cs=>cs.filter(c=>c.id!==id)),
-    addPartner:u=>setU(us=>[...us,{...u,id:uid(),color:COLORS[us.length%COLORS.length]}]),
-    updPartner:(id,ch)=>setU(us=>us.map(u=>u.id===id?{...u,...ch}:u)),
-    delPartner:id=>setU(us=>us.filter(u=>u.id!==id)),
     crm,
     addCRM:c=>setCRM(cs=>[...cs,{...c,id:uid(),project_ids:c.project_ids||[],tags:c.tags||[]}]),
     updCRM:(id,ch)=>setCRM(cs=>cs.map(c=>c.id===id?{...c,...ch}:c)),
@@ -1302,7 +1287,8 @@ const Btn=({children,v='primary',sz='md',sx={},...p})=>{
 };
 function Av({u,size=28}){
   if(!u)return<div style={{width:size,height:size,borderRadius:'50%',background:'#E8E6E1',display:'flex',alignItems:'center',justifyContent:'center',color:'#8C8C8C',fontSize:size*.4,flexShrink:0}}>?</div>;
-  return<div title={u.name} style={{width:size,height:size,borderRadius:'50%',background:u.color,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:600,fontSize:size*.38,flexShrink:0}}>{u.name[0]}</div>;
+  if(u.picture)return<img src={u.picture} title={u.name} alt={u.name} style={{width:size,height:size,borderRadius:'50%',flexShrink:0,objectFit:'cover'}}/>;
+  return<div title={u.name} style={{width:size,height:size,borderRadius:'50%',background:u.color||'#9C9C9C',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:600,fontSize:size*.38,flexShrink:0}}>{(u.name||'?')[0]}</div>;
 }
 const STATUS_MAP={
   'Planning':    {heb:'תכנון',      bg:'#EFF6FF',col:'#1D4ED8',dot:'#3B82F6'},
@@ -1598,7 +1584,7 @@ function KanbanView({tasks,allTasks,allProjects,partners,db,pid,onOpenTask}){
                   {od&&<span style={{fontSize:10,color:'#EF4444',fontWeight:600}}>⚠️ {fmtD(t.deadline)}</span>}
                   {(t.notes||[]).length>0&&<span style={{fontSize:10,color:'#9C9C9C'}}>💬{t.notes.length}</span>}
                 </div>
-                {asgn&&<div style={{width:22,height:22,borderRadius:'50%',background:asgn.color,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontSize:10,fontWeight:700,flexShrink:0}}>{asgn.name[0]}</div>}
+                {asgn&&<Av u={asgn} size={22}/>}
               </div>
             </div>;
           })}

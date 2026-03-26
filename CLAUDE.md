@@ -6,7 +6,7 @@
 
 ## פרטי פרויקט
 
-- **Live:** https://ddemburg.github.io/archstudio/index.html
+- **Live:** https://do-bonim-manage.netlify.app
 - **GitHub:** github.com/ddemburg/archstudio — branch: `multi-user`
 - **קובץ מקומי:** `C:\Users\User\archstudio\index.html`
 - **Git config:** email=dima@do-bonim.com, name=Dima
@@ -41,10 +41,38 @@
 | שכבה | טכנולוגיה |
 |------|-----------|
 | Frontend | React 18 + Babel (browser) |
-| Auth | Supabase Auth + Google OAuth (implicit flow) |
+| Auth | Supabase Auth + Google OAuth |
 | Database | Supabase REST API |
-| Files | Supabase Storage (bucket: project-docs) |
-| Deploy | GitHub Pages (branch: multi-user) |
+| Files | Supabase Storage |
+| Deploy | **Netlify** (branch: multi-user) ← שונה מ-GitHub Pages |
+
+---
+
+## Netlify Deploy
+
+### למה עברנו מ-GitHub Pages
+GitHub Pages לא תומך ב-redirect rules. אחרי OAuth, Supabase מחזיר `#access_token` ב-URL — על GitHub Pages, רענון הדף נותן 404. Netlify פותר את זה.
+
+### קובץ `_redirects` (חובה בשורש הריפו)
+```
+/*    /index.html   200
+```
+קובץ זה חייב להיות קיים ב-branch `multi-user`. בלעדיו — OAuth לא עובד.
+
+### הגדרות Netlify
+- **Repo:** github.com/ddemburg/archstudio
+- **Branch:** multi-user
+- **Build command:** (ריק — אין build)
+- **Publish directory:** `.` (שורש)
+
+### Git לאחר שינויים
+```bash
+cd C:\Users\User\archstudio
+git add index.html
+git commit -m "תיאור"
+git push origin multi-user
+```
+Netlify מ-deploy אוטומטית עם כל push.
 
 ---
 
@@ -52,7 +80,7 @@
 
 ```javascript
 const SUPABASE_URL  = 'https://uueriunjafzjpfptjdof.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1ZXJpdW5qYWZ6anBmcHRqZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTY2ODcsImV4cCI6MjA4ODU3MjY4N30.gfn_L4C7tXjA-7xGmNiY-3QNKsAV-BWiCSPQc7q1hO4';
 ```
 
 ### טבלאות
@@ -61,46 +89,65 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
 - **office_data** — `id, office_id, data (JSONB), updated_at`
 - **Storage bucket:** `project-docs` (private, RLS)
 
-### RLS — מצב נוכחי ✅
-כל הטבלאות מוגנות עם `authenticated` policy + `SECURITY DEFINER` function:
-```sql
--- function:
-CREATE OR REPLACE FUNCTION get_my_office_id()
-RETURNS int LANGUAGE sql SECURITY DEFINER STABLE AS $$
-  SELECT office_id FROM office_members
-  WHERE email = auth.jwt()->>'email' AND active = true LIMIT 1
-$$;
+### RLS
+כרגע: `anon` policy — נגיש עם anon key.
+מטרה: `authenticated` policy אחרי שה-auth עובד מלא.
 
--- policy על office_members ו-office_data:
-office_id = get_my_office_id()
-
--- policy על offices:
-id = get_my_office_id()
-```
-
-### Supabase Auth — Google OAuth (implicit flow)
-- Redirect URL: `https://ddemburg.github.io/archstudio/index.html`
-- Token מגיע ב-hash: `#access_token=...`
-- `gSignIn()` מפנה ל-`index.html` במפורש (חשוב! אחרת GitHub Pages מוחק את ה-hash)
+### Supabase Auth — Google OAuth (עודכן ל-Netlify)
+- Callback URL: `https://uueriunjafzjpfptjdof.supabase.co/auth/v1/callback`
+- **Site URL: `https://do-bonim-manage.netlify.app`** ← עודכן
+- **Redirect URL: `https://do-bonim-manage.netlify.app`** ← עודכן
 - Google Client ID: `1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com`
+
+### הגדרות Google OAuth Console (עודכן)
+- **Authorized redirect URIs:** `https://uueriunjafzjpfptjdof.supabase.co/auth/v1/callback` (לא השתנה)
+- **Authorized JavaScript origins:** `https://do-bonim-manage.netlify.app` ← עודכן
 
 ---
 
-## Auth Flow
+## Auth Flow (Supabase Auth)
 
 ```
-1. gSignIn() → redirect לאתר של Supabase עם provider=google
-2. Google → Supabase callback → redirect ל-index.html עם #access_token=...
+1. gSignIn() → redirect: /auth/v1/authorize?provider=google
+2. Google → Supabase callback → redirect לאתר עם #access_token
 3. gTrySilentSignIn() → קורא hash → שומר ב-sessionStorage('arch_session')
 4. _sbSession מאותחל → sbHeaders() מחזיר Bearer token
 5. apiLoad() טוען נתונים
 ```
 
+**הערה:** `redirectTo` בנוי דינמית מ-`window.location.origin + window.location.pathname` — לא צריך לשנות קוד בעת מעבר ל-Netlify.
+
 ### משתנים גלובליים
 ```javascript
 let _sbSession   = null;   // {access_token, refresh_token, expires_at, user}
 let _sbUserEmail = '';
+let _gAccessToken = '';    // לגיבוי Google Drive בלבד
 ```
+
+---
+
+## בעיה פתוחה — CRITICAL 🚨
+
+**הבעיה:** האתר לא נטען אחרי כניסה — מסך כניסה נשאר.
+
+**מה שכן עובד:**
+- redirect לגוגל וחזרה ✅
+- `sessionStorage.getItem('arch_session')` → session תקף ✅
+- `gTrySilentSignIn()` ידנית בקונסול → `ok: true, _sbSession: true` ✅
+
+**מה שלא עובד:**
+- `tryAuto` ב-App → לא מזהה session → נשאר במסך כניסה
+
+**הדבר הבא לנסות:**
+```javascript
+// הרץ בקונסול:
+apiLoad().then(d=>console.log('data:', !!d, d)).catch(e=>console.error('err:', e))
+```
+
+**השערה:** stale closure — `db.driveLoad` ב-useEffect לא מקבל את ה-_sbSession המעודכן.
+פתרון אפשרי: להשתמש ב-`useRef` עבור `driveLoad` או להפעיל את הטעינה מחוץ ל-closure.
+
+**הערה:** המעבר ל-Netlify עשוי לפתור חלקית — GitHub Pages החזיר 404 על redirect, מה שמנע את ה-hash מלהגיע ל-`gTrySilentSignIn`.
 
 ---
 
@@ -108,12 +155,13 @@ let _sbUserEmail = '';
 
 ```javascript
 // Auth
-async function gSignIn()              // redirect לגוגל
-async function gTrySilentSignIn()     // קורא hash/sessionStorage
-async function _sbRefreshSession(rt)
+async function gSignIn()
+async function gTrySilentSignIn()
+async function _sbRefreshSession(refreshToken)
 async function gSignOut()
 function gIsSignedIn()
-function sbHeaders(extra)
+function sbAuthHeaders(extra)
+function sbHeaders(extra)        // alias
 async function sbQuery(path, opts)
 
 // Members
@@ -173,7 +221,7 @@ async function sbDeleteFile(path)
   status,           // 'To Do' | 'In Progress' | 'Done' | 'Blocked'
   priority,         // 'High' | 'Medium' | 'Low'
   deadline, assignee_id,
-  depends_on: [],   // יכול לכלול גם תת-משימות
+  depends_on: [],
   parent_task_id,
   notes: [],
   description,
@@ -184,14 +232,10 @@ async function sbDeleteFile(path)
 }
 ```
 
-### Project object — שדות נוספים
-```javascript
-{
-  section_order: ['sec1','sec2'],         // סדר קטגוריות (drag & drop)
-  task_order: { 'secName': ['id1','id2'] }, // סדר משימות בקטגוריה
-  section_deps: { 'secA': ['secB'] },     // תלויות בין קטגוריות
-}
-```
+### Section Categories
+- `section_deps` בפרויקט: `{ 'secA': ['secB'] }`
+- עיגול ✓ → מסמן כל המשימות + subtasks
+- ⚡ badge כשתלויות הושלמו
 
 ---
 
@@ -199,26 +243,14 @@ async function sbDeleteFile(path)
 
 ```
 App
-├── useIsMobile() → MobileApp | DesktopApp
 ├── DriveLoginScreen
 ├── DriveBanner
-├── ConfirmModal / useConfirm()
-│
-├── MobileApp (< 768px)
-│   ├── MobileProjects
-│   ├── MobileProject → MobileTaskRow, MobileTaskSheet, BottomSheet
-│   ├── MobileAllTasks
-│   ├── MobileSettings
-│   └── MobileTabBar
-│
-└── Desktop (>= 768px)
-    ├── Sidebar + FilterEditorModal (task filters)
+└── main
     ├── Dashboard
-    ├── ProjectDetail → TasksTab (drag sections+tasks), FlowTab,
-    │                   MilestonesTab, DocsTab (upload), ReqsTab,
-    │                   ApprovalsTab, ConsultantsTab, SettingsTab, LogTab
-    ├── AllTasksPage (with activeFilter)
-    ├── LeadsPage, CRMPage, ReportsPage
+    ├── ProjectDetail → TasksTab, FlowTab, MilestonesTab,
+    │                   DocsTab, ReqsTab, ApprovalsTab,
+    │                   ConsultantsTab, SettingsTab, LogTab
+    ├── AllTasksPage, LeadsPage, CRMPage, ReportsPage
     ├── PartnersPage, CommitteesPage, TemplatesPage
     ├── AppSettingsPage, ClientPortal, NewProjectModal
     └── TaskModal (overlay)
@@ -239,25 +271,25 @@ App
 
 ## פיצ'רים קיימים ✅
 
-- Supabase Auth עם Google OAuth (implicit flow, עובד!)
-- RLS מאובטח — כל משתמש רואה רק את המשרד שלו
+- Supabase Auth עם Google OAuth
 - ניהול משתמשים + הגנה על מנהל אחרון
 - כפתור יציאה (סיידבר + הגדרות)
 - זיהוי אוטומטי משתמש לפי email
 - פילטור אחראים לפי תפקיד + פרויקט
 - היררכיית משימות מלאה + cascade
-- קטגוריות + תלויות בין קטגוריות
-- תלויות בין כל משימות (כולל תת-משימות)
-- ⚡ readiness badge
+- קטגוריות כמשימות-אב + תלויות בין קטגוריות
+- חיווי ⚡ readiness
 - טיים-סטאמפ על שינוי סטטוס
-- לוג פעילות לפרויקט
-- CRM עם לקוחות מרובים
-- גרירה לשינוי סדר קטגוריות ומשימות (שמור בפרויקט)
-- מחיקת משימה עם חלון אישור מותאם (לא browser confirm)
-- העלאת קבצים במסמכים (desktop + mobile)
-- מובייל: layout נפרד, bottom nav, task sheet, camera
-- פילטרי משימות בסיידבר (שמורים ב-localStorage)
-- גיבוי ידני
+- לוג פעילות לפרויקט (טאב + כפתור בהגדרות)
+- לקוחות מרובים מ-CRM בפרויקט
+- שדה ת"ז ב-CRM
+- עריכה inline ב-CRM
+- חיפוש CRM בהוספת לקוח
+- תיקון חיפוש תלויות (פרויקט נוכחי ראשון)
+- הערות עם שם כותב נכון
+- גיבוי 3-2-1 (Supabase + Drive + GitHub)
+- RLS מופעל על כל הטבלאות
+- **Deploy ל-Netlify עם `_redirects` לתמיכה ב-OAuth** ← חדש
 
 ---
 
@@ -279,27 +311,29 @@ git add index.html
 git commit -m "תיאור"
 git push origin multi-user
 ```
+Netlify מ-deploy אוטומטית — אין צורך בשום פעולה נוספת.
 
 ### לעולם לא
 - Notepad/batch לעריכה (שובר anon key)
 - `import` במקום destructure
 - script לפני `<div id="root">`
+- לשנות את קובץ `_redirects` (שובר OAuth)
 
 ---
 
 ## פיצ'רים מתוכננים
 
 **גבוהה:**
+- פתרון בעיית טעינה אחרי auth ← **הדבר הבא!** (Netlify אמור לעזור)
+- מעבר ל-RLS authenticated
 - סטטוסים בעברית מותאמים
 - שדות גוש/חלקה/מגרש
 - סימון מסמכים חובה
-- ועדת תכנון בעת יצירת פרויקט חדש
 
 **בינונית:**
-- אינדיקטור שמירה ברור
+- אינדיקטור שמירה
 - convert task to subtask
-- מובייל: תצוגת flow/kanban
 
 **נמוכה:**
 - תפוגת מסמכים
-- סידור קטגוריות ב-drag במובייל
+- סידור קטגוריות ידני

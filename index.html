@@ -152,7 +152,15 @@ async function gTrySilentSignIn() {
           const name    = data.user?.user_metadata?.full_name || data.user?.email || '';
           const picture = data.user?.user_metadata?.avatar_url || '';
           await sbEnsureMember(_sbUserEmail, name, picture);
-        } catch(e) { console.warn('sbEnsureMember failed:', e.message); }
+        } catch(e) {
+          console.warn('sbEnsureMember failed:', e.message);
+          // User is not registered — sign out and surface the error
+          if (e.message && e.message.includes('לא רשום')) {
+            _sbSession = null; _sbUserEmail = '';
+            try { sessionStorage.removeItem('arch_session'); sessionStorage.removeItem('arch_email'); } catch(_) {}
+            throw new Error(e.message);
+          }
+        }
         return true;
       }
     } catch(e) {
@@ -261,7 +269,12 @@ async function sbEnsureMember(email, name, picture) {
     try { sessionStorage.setItem('arch_email', email); } catch(e) {}
     return member;
   }
-  // First user — create office + member
+  // Check if any offices exist — if yes, this user must be pre-registered by an admin
+  const existingOffices = await sbQuery('offices?limit=1');
+  if (existingOffices && existingOffices.length > 0) {
+    throw new Error('המשתמש לא רשום במערכת. פנה למנהל המשרד להוספתך.');
+  }
+  // First user ever — create office + member as admin
   const officeRows = await sbQuery('offices', {
     method: 'POST',
     headers: sbHeaders({ 'Prefer': 'return=representation' }),
@@ -326,7 +339,9 @@ async function apiGetMembers() {
 async function apiAddMember(email, name, role, assignedProjects=[]) {
   if (!_sbUserEmail) { const s=sessionStorage.getItem('arch_email'); if(s) _sbUserEmail=s; }
   const me = await sbGetMember(_sbUserEmail);
-  if (!me || me.role !== 'admin') throw new Error('Admins only');
+  if (!me) throw new Error('לא מחובר');
+  if (me.role === 'manager' && !['drafter','client'].includes(role)) throw new Error('מנהל שותף יכול להוסיף רק עובדים ולקוחות');
+  if (!['admin','manager'].includes(me.role)) throw new Error('אין לך הרשאה להוסיף משתמשים');
   await sbQuery('office_members', {
     method: 'POST',
     headers: sbHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
@@ -1107,7 +1122,7 @@ function useApp(){
           return{
             id: existing?.id||om.id||uid(),
             name: om.name||om.email,
-            role: om.role==='admin'?'שותף בכיר':om.role==='manager'?'מנהל':om.role==='drafter'?'שרטט':'לקוח',
+            role: om.role==='admin'?'שותף בכיר':om.role==='manager'?'מנהל שותף':om.role==='drafter'?'עובד':'לקוח',
             color: existing?.color||COLORS[i%COLORS.length],
             email: om.email,
             picture: om.picture||'',
@@ -2881,7 +2896,7 @@ function PartnersPage({db,nav}){
         const doneT=db.tasks.filter(t=>t.assignee_id===p.id&&t.status==='Done');
         const ROLE_COLORS={'admin':'#1D4ED8','manager':'#065F46','drafter':'#B45309','client':'#6B7280'};
         const om=db.officeMembers.find(m=>m.email===p.email);
-        const roleHe={'admin':'מנהל ראשי','manager':'מנהל משרד','drafter':'שרטט','client':'לקוח'};
+        const roleHe={'admin':'מנהל ראשי','manager':'מנהל שותף','drafter':'עובד','client':'לקוח'};
         return<div key={p.id} style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:16}}>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
@@ -3736,6 +3751,7 @@ function AppSettingsPage({db}){
   },[]);
 
   const isAdmin=currentMember?.role==='admin';
+  const canManageUsers=isAdmin||currentMember?.role==='manager';
 
   const doAdd=async()=>{
     if(!addForm.email.trim()){setAddErr('נא להזין כתובת אימייל');return;}
@@ -3779,8 +3795,9 @@ function AppSettingsPage({db}){
     }catch(e){alert('שגיאה: '+e.message);}
   };
 
-  const ROLE_LABELS={'admin':'מנהל ראשי','manager':'מנהל משרד','drafter':'שרטט','client':'לקוח'};
+  const ROLE_LABELS={'admin':'מנהל ראשי','manager':'מנהל שותף','drafter':'עובד','client':'לקוח'};
   const ROLE_COLORS={'admin':'#1D4ED8','manager':'#065F46','drafter':'#B45309','client':'#6B7280'};
+  const addableRoles=isAdmin?Object.entries(ROLE_LABELS):Object.entries(ROLE_LABELS).filter(([v])=>['drafter','client'].includes(v));
 
   return<div>
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>הגדרות</h1>
@@ -3797,7 +3814,7 @@ function AppSettingsPage({db}){
 
       {/* Members list */}
       {loadingMembers?<div style={{color:'#8C8C8C',fontSize:13,padding:'8px 0'}}>טוען...</div>:
-      <div style={{marginBottom:isAdmin?16:0}}>
+      <div style={{marginBottom:canManageUsers?16:0}}>
         {members.map(m=>(
           <div key={m.email} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:'1px solid #F5F5F3'}}>
             {m.picture?<img src={m.picture} style={{width:34,height:34,borderRadius:'50%',flexShrink:0}} alt=""/>
@@ -3818,8 +3835,8 @@ function AppSettingsPage({db}){
         ))}
       </div>}
 
-      {/* Add member form — admins only */}
-      {isAdmin&&<div style={{background:'#FAFAF8',borderRadius:10,padding:14,border:'1px solid #F0EDE8'}}>
+      {/* Add member form — admins and managers */}
+      {canManageUsers&&<div style={{background:'#FAFAF8',borderRadius:10,padding:14,border:'1px solid #F0EDE8'}}>
         <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>הוסף חבר צוות חדש</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
           <I label="כתובת Gmail *" value={addForm.email} onChange={e=>setAddForm(f=>({...f,email:e.target.value}))} placeholder="name@gmail.com" type="email"/>
@@ -3828,7 +3845,7 @@ function AppSettingsPage({db}){
         <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
           <div style={{flex:1}}>
             <SE label="תפקיד" value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))}>
-              {Object.entries(ROLE_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              {addableRoles.map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </SE>
           </div>
           <Btn onClick={doAdd} disabled={adding} sx={{height:38,marginBottom:0}}>{adding?'מוסיף...':'+ הוסף'}</Btn>
@@ -3892,9 +3909,9 @@ function DriveBanner({db}){
   );
 }
 
-function DriveLoginScreen({onLogin}){
+function DriveLoginScreen({onLogin,initialErr=''}){
   const [loading,setLoading]=useState(false);
-  const [err,setErr]=useState('');
+  const [err,setErr]=useState(initialErr);
   const doLogin=async()=>{
     setLoading(true); setErr('');
     try{
@@ -3947,6 +3964,7 @@ function App(){
   const proj=db.projects.find(p=>p.id===pid);
   const [loggedIn,setLoggedIn]=useState(false);
   const [autoLogging,setAutoLogging]=useState(true);
+  const [authErr,setAuthErr]=useState('');
 
   // Try silent login on first render
   useEffect(()=>{
@@ -3962,7 +3980,7 @@ function App(){
           if(ok){ setLoggedIn(true); await db.driveLoad(); }
           setAutoLogging(false);
         }
-      }catch(e){ if(!cancelled) setAutoLogging(false); }
+      }catch(e){ if(!cancelled){ setAutoLogging(false); if(e.message) setAuthErr(e.message); } }
     };
     tryAuto();
     return()=>{cancelled=true;};
@@ -3994,7 +4012,7 @@ function App(){
     </div>
   );
 
-  if(!loggedIn) return <DriveLoginScreen onLogin={handleLogin}/>;
+  if(!loggedIn) return <DriveLoginScreen onLogin={handleLogin} initialErr={authErr}/>;
 
   // Push to browser history on navigation
   const navTo=(pg,id=null)=>{

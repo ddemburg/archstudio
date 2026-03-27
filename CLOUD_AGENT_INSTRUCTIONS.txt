@@ -29,8 +29,33 @@ CRITICAL RULES — READ BEFORE ANY CODE EDIT:
 - NEVER modify the _redirects file (breaks OAuth)
 - NEVER modify the SUPABASE_ANON key
 - Always use the Edit tool to modify index.html (never bash/sed/awk)
-- After all edits: git add index.html && git commit -m "..." && git push origin multi-user
-- Netlify auto-deploys on every push to multi-user
+- NEVER push directly to multi-user — always push to the sentry branch (see below)
+- Netlify auto-deploys on every push to multi-user (so sentry branch is safe/staging)
+
+================================================================================
+  BRANCH STRATEGY
+================================================================================
+
+You work on a dedicated sentry branch, NOT on multi-user directly.
+
+Branch naming: sentry/YYYY-MM-DD (today's date, e.g. sentry/2026-03-27)
+
+At the start of Run 1:
+  git checkout multi-user
+  git pull origin multi-user
+  git checkout -b sentry/YYYY-MM-DD
+  git push -u origin sentry/YYYY-MM-DD
+
+Runs 2-5: just checkout the existing sentry branch:
+  git checkout sentry/YYYY-MM-DD
+  git pull origin sentry/YYYY-MM-DD
+
+After the FINAL RUN: open a Pull Request from sentry/YYYY-MM-DD → multi-user
+  gh pr create --title "Sentry [DATE] — N fixes, UI upgrade" \
+    --body "Daily sentry batch. See DAILY-REPORT.md for full details." \
+    --base multi-user --head sentry/YYYY-MM-DD
+
+Dima will review and merge manually. Do NOT merge the PR yourself.
 
 ================================================================================
   BATCH SYSTEM LOGIC
@@ -38,8 +63,7 @@ CRITICAL RULES — READ BEFORE ANY CODE EDIT:
 
 At the start of EVERY run, determine which run of today's batch you are:
 
-  1. Check today's git commits on multi-user branch:
-     git log --oneline --since="today 00:00" --until="now"
+  1. Check today's sentry branch: git log --oneline --since="today 00:00"
   2. Count how many commits start with "[Sentry Run"
   3. Add 1 → that is your current run number
   4. If run number > 4 → you are on the FINAL RUN (report generation)
@@ -73,7 +97,8 @@ Steps:
    - Section C: Feature gaps
    Total items catalogued: N
 
-7. Commit: "[Sentry Run 1] QA audit — N issues catalogued"
+7. Commit & push: "[Sentry Run 1] QA audit — N issues catalogued"
+   git add QA-PROGRESS.md && git commit -m "..." && git push origin sentry/YYYY-MM-DD
 
 ================================================================================
   RUN 2: CRITICAL FIXES
@@ -86,7 +111,8 @@ Steps:
 2. Fix each Critical bug in index.html
 3. Fix each High severity bug
 4. Update QA-PROGRESS.md — mark fixed items as ✅
-5. Commit: "[Sentry Run 2] Critical+High fixes — N bugs fixed"
+5. Commit & push: "[Sentry Run 2] Critical+High fixes — N bugs fixed"
+   git add index.html QA-PROGRESS.md && git commit -m "..." && git push origin sentry/YYYY-MM-DD
 
 ================================================================================
   RUN 3: UI UPGRADE — GLASS & COLORS
@@ -106,7 +132,8 @@ Steps:
 2. Apply upgrades in priority order
 3. Ensure RTL (dir="rtl") is not broken
 4. Update QA-PROGRESS.md — mark UI items as ✅
-5. Commit: "[Sentry Run 3] UI upgrade — glass/color system applied"
+5. Commit & push: "[Sentry Run 3] UI upgrade — glass/color system applied"
+   git add index.html QA-PROGRESS.md && git commit -m "..." && git push origin sentry/YYYY-MM-DD
 
 ================================================================================
   RUN 4: TYPOGRAPHY & POLISH
@@ -123,7 +150,8 @@ Steps:
    - No inline sub-component definitions inside render functions
    - No import statements
 5. Update QA-PROGRESS.md — mark all completed items ✅
-6. Commit: "[Sentry Run 4] Typography + polish — batch nearly complete"
+6. Commit & push: "[Sentry Run 4] Typography + polish — batch nearly complete"
+   git add index.html QA-PROGRESS.md && git commit -m "..." && git push origin sentry/YYYY-MM-DD
 
 ================================================================================
   FINAL RUN (Run 5+): DAILY REPORT
@@ -162,8 +190,10 @@ Steps:
    ## Next Batch Recommendations
    [Top 3 things to tackle in the next batch]
 
-5. Commit: "[Sentry Final] Daily report generated"
+5. Commit & push: "[Sentry Final] Daily report generated"
+   git add DAILY-REPORT.md QA-PROGRESS.md TASKS.md && git commit -m "..." && git push origin sentry/YYYY-MM-DD
 6. If there are unfixed items, also update TASKS.md with them
+7. Open a Pull Request: sentry/YYYY-MM-DD → multi-user (see BRANCH STRATEGY above)
 
 ================================================================================
   GENERAL GUIDELINES

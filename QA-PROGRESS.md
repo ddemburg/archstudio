@@ -44,19 +44,19 @@
 
 | # | Issue | Priority | Status |
 |---|-------|----------|--------|
-| B1 | Cards & panels use flat `white` background — should be glass card style | High | ⬜ |
-| B2 | Primary buttons (`Btn v="primary"`) use `#1A1A1A` — should be gold glass style | High | ⬜ |
-| B3 | Sidebar background is `#1C1C1E` — should be `--color-steel-900` (`#0f1318`) | Medium | ⬜ |
-| B4 | Sidebar active state uses green tint — branding calls for gold glass + left border `gold-400` | High | ⬜ |
-| B5 | Modal (`Modal` component) uses flat `white` background — should be elevated glass card | High | ⬜ |
-| B6 | Status badges use hardcoded colors not from branding semantic system | Medium | ⬜ |
-| B7 | `Heebo` font referenced in CSS but not loaded via Google Fonts `<link>` — falls back to system font | High | ⬜ |
-| B8 | `DM Sans` font referenced in sidebar but not loaded | Medium | ⬜ |
+| B1 | Cards & panels use flat `white` background — should be glass card style | High | ✅ |
+| B2 | Primary buttons (`Btn v="primary"`) use `#1A1A1A` — should be gold glass style | High | ✅ |
+| B3 | Sidebar background is `#1C1C1E` — should be `--color-steel-900` (`#0f1318`) | Medium | ✅ |
+| B4 | Sidebar active state uses green tint — branding calls for gold glass + left border `gold-400` | High | ✅ |
+| B5 | Modal (`Modal` component) uses flat `white` background — should be elevated glass card | High | ✅ |
+| B6 | Status badges use hardcoded colors not from branding semantic system | Medium | ✅ |
+| B7 | `Heebo` font referenced in CSS but not loaded via Google Fonts `<link>` — falls back to system font | High | ✅ |
+| B8 | `DM Sans` font referenced in sidebar but not loaded | Medium | ✅ |
 | B9 | All font sizes are hardcoded px values — branding requires `clamp()` fluid scale via CSS vars | Medium | ⬜ |
-| B10 | CSS `:root` uses old palette vars (`--green`, `--gold`, `--red`) instead of steel/gold system from branding.md | High | ⬜ |
-| B11 | No `fadeSlideUp` / `.animate-appear` animation class defined — branding specifies it for panel transitions | Low | ⬜ |
+| B10 | CSS `:root` uses old palette vars (`--green`, `--gold`, `--red`) instead of steel/gold system from branding.md | High | ✅ |
+| B11 | No `fadeSlideUp` / `.animate-appear` animation class defined — branding specifies it for panel transitions | Low | ✅ |
 | B12 | Inputs have no gold focus ring — branding specifies `gold focus ring` for inputs/dropdowns | Low | ⬜ |
-| B13 | App background is `#F5F4F0` (warm off-white) — branding background is `--color-steel-900` (`#0f1318`) | High | ⬜ |
+| B13 | App background is `#F5F4F0` (warm off-white) — branding background is `--color-steel-900` (`#0f1318`) | High | ✅ |
 
 ---
 
@@ -87,4 +87,4 @@
 
 ---
 
-*Last updated: Sentry Run 2 — 2026-03-27*
+*Last updated: Sentry Run 3 — 2026-03-27*

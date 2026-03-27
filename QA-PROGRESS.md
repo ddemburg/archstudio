@@ -9,17 +9,17 @@
 
 | # | Issue | Location | Notes |
 |---|-------|----------|-------|
-| A1 | `filteredPartners` is used but never defined in `AllTasksPage` — throws `ReferenceError` when clicking any task row | `index.html:2856` | Should be `db.partners` |
-| A2 | `<Av name={p.name} size={44} color={p.color}/>` — `Av` component accepts `u` prop (an object), not separate `name`/`color` props; avatar renders `?` for all partners with no picture | `index.html:2907` | Should be `<Av u={p} size={44}/>` |
+| A1 | ✅ `filteredPartners` is used but never defined in `AllTasksPage` — throws `ReferenceError` when clicking any task row | `index.html:2856` | Fixed: changed to `db.partners` |
+| A2 | ✅ `<Av name={p.name} size={44} color={p.color}/>` — `Av` component accepts `u` prop (an object), not separate `name`/`color` props; avatar renders `?` for all partners with no picture | `index.html:2907` | Fixed: changed to `<Av u={p} size={44}/>` |
 
 ### High
 
 | # | Issue | Location | Notes |
 |---|-------|----------|-------|
-| A3 | Missing `@keyframes spin` CSS — loading spinner in `DriveLoginScreen` is invisible (element exists but doesn't spin) | `index.html:3937` | Need `@keyframes spin{to{transform:rotate(360deg)}}` |
-| A4 | Missing `@keyframes pulse` CSS — save-state dot in `DriveBanner` doesn't pulse | `index.html:3906` | Need `@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}` |
-| A5 | Tailwind CSS classes on two buttons in `Dashboard` render unstyled — no Tailwind CDN loaded | `index.html:2820,2840` | `"+ פרויקט חדש"` button and `"👁 פורטל לקוח"` button |
-| A6 | `autoBackup()` always silently fails — uses `_gAccessToken` which is never populated in the current PKCE flow (only `_calToken` is saved from `provider_token`) | `index.html:1166` | Google Drive backup is dead code; `_gAccessToken` always `''` |
+| A3 | ✅ Missing `@keyframes spin` CSS — loading spinner in `DriveLoginScreen` is invisible (element exists but doesn't spin) | `index.html:3937` | Fixed: added `@keyframes spin` to style block |
+| A4 | ✅ Missing `@keyframes pulse` CSS — save-state dot in `DriveBanner` doesn't pulse | `index.html:3906` | Fixed: added `@keyframes pulse` to style block |
+| A5 | ✅ Tailwind CSS classes on two buttons in `Dashboard` render unstyled — no Tailwind CDN loaded | `index.html:2820,2840` | Fixed: replaced with inline styles on both buttons |
+| A6 | ✅ `autoBackup()` always silently fails — uses `_gAccessToken` which is never populated in the current PKCE flow (only `_calToken` is saved from `provider_token`) | `index.html:1166` | Fixed: changed to `_calToken`; also added `drive.appdata` scope to `gSignIn()` |
 
 ### Medium
 
@@ -87,4 +87,4 @@
 
 ---
 
-*Last updated: Sentry Run 1 — 2026-03-27*
+*Last updated: Sentry Run 2 — 2026-03-27*

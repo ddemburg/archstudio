@@ -17,6 +17,8 @@
   .fade{animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:#D1CBC1;border-radius:10px}
@@ -81,6 +83,7 @@ async function gSignIn() {
   const scopes = [
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/drive.appdata',
   ].join(' ');
 
   // Generate PKCE code verifier + challenge
@@ -1163,7 +1166,7 @@ function useApp(){
       if (!gIsSignedIn()) return;
       const s = state || getState();
       const blob = new Blob([JSON.stringify(s, null, 2)], {type: 'application/json'});
-      const token = _gAccessToken;
+      const token = _calToken;
       // Check for existing backup file
       const listRes = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='archstudio-backup.json'&fields=files(id)", {
         headers: {Authorization: 'Bearer ' + token}
@@ -2817,7 +2820,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
         <option value="Low">Low</option>
       </FS>
       {activeF>0&&<button onClick={()=>{setFSt('All');setFC('All');setFU('All');setFP('All');setS('');}} style={{height:34,padding:'0 10px',borderRadius:7,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',fontSize:12,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>× נקה ({activeF})</button>}
-      <div style={{flex:1}}/><button onClick={onNew} className="inline-flex items-center gap-2 h-10 px-5 bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white font-sans font-medium text-base tracking-tight rounded-lg border border-accent-500 transition-all duration-[180ms] cursor-pointer select-none">+ פרויקט חדש</button>
+      <div style={{flex:1}}/><button onClick={onNew} style={{height:40,padding:'0 20px',background:'#4a7c5e',color:'white',border:'none',borderRadius:8,fontSize:14,fontWeight:500,cursor:'pointer',fontFamily:'Heebo,sans-serif',display:'inline-flex',alignItems:'center',gap:6}}>+ פרויקט חדש</button>
     </div>
     <div style={{fontSize:12,color:'#8C8C8C',marginBottom:10}}>{filtered.length} פרויקטים</div>
 
@@ -2837,7 +2840,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
             {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
             {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
             {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
-            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} className="w-full h-8 bg-white hover:bg-stone-50 border border-stone-300 hover:border-accent-400 text-accent-600 font-sans font-semibold text-xs tracking-wide rounded-md transition-all duration-[180ms] cursor-pointer">👁 פורטל לקוח</button></div>}
+            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'white',border:'1px solid #D4D0C8',color:'#4a7c5e',fontFamily:'Heebo,sans-serif',fontWeight:600,fontSize:11,borderRadius:6,cursor:'pointer'}}>👁 פורטל לקוח</button></div>}
           </div>
         </div>;
       })}
@@ -2853,7 +2856,7 @@ function AllTasksPage({db,nav}){
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
@@ -2904,7 +2907,7 @@ function PartnersPage({db,nav}){
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
               ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
-              :<Av name={p.name} size={44} color={p.color}/>}
+              :<Av u={p} size={44}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
               <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>

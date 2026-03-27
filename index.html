@@ -21,8 +21,18 @@
     --color-success:#3d8f5f;--color-warning:#b8822a;--color-error:#8f3d3d;--color-info:#3d668f;
     --green:#3D7A5A;--gold:#c9983a;--red:#DC2626;--red-light:rgba(143,61,61,.18);--border:var(--color-steel-600);--text2:var(--color-steel-400);
     --transition-fast:0.12s ease;--transition-normal:0.2s ease;
+    --text-xs:clamp(0.65rem,0.6rem + 0.25vw,0.75rem);
+    --text-sm:clamp(0.78rem,0.72rem + 0.3vw,0.875rem);
+    --text-base:clamp(0.9rem,0.85rem + 0.35vw,1rem);
+    --text-md:clamp(1rem,0.95rem + 0.4vw,1.125rem);
+    --text-lg:clamp(1.1rem,1rem + 0.5vw,1.25rem);
+    --text-xl:clamp(1.2rem,1.1rem + 0.65vw,1.5rem);
+    --text-2xl:clamp(1.4rem,1.25rem + 0.85vw,1.875rem);
+    --text-3xl:clamp(1.65rem,1.4rem + 1.1vw,2.25rem);
   }
-  body{font-family:'Heebo',sans-serif;background:var(--color-steel-900);color:var(--color-steel-200);direction:rtl}
+  body{font-family:'Heebo',sans-serif;background:var(--color-steel-900);color:var(--color-steel-200);direction:rtl;font-size:var(--text-base)}
+  input,select,textarea{transition:border-color var(--transition-fast),box-shadow var(--transition-fast)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--color-gold-400)!important;box-shadow:0 0 0 3px rgba(201,152,58,0.18)!important}
   .hr:hover{background:rgba(255,255,255,.04)!important}
   .hc:hover{background:rgba(255,255,255,.04)!important;transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4)!important}
   .fade{animation:fadeIn .18s ease}
@@ -1218,7 +1228,7 @@ function useApp(){
     if(!driveReady||!gIsSignedIn())return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(()=>{const s=getState();driveSave(s);autoBackup(s);},2000);
-  },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
+  },[projects,tasks,docs,reqs,approvs,committees,templates,crm,leads,driveReady]);
 
   return {
     driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
@@ -3826,7 +3836,8 @@ function AppSettingsPage({db}){
     // Prevent demoting yourself
     if(email===sessionStorage.getItem('arch_email')&&role!=='admin'){alert('You cannot change your own role.');return;}
     try{
-      await apiUpdateMember(email,role,[]);
+      const existing=members.find(m=>m.email===email);
+      await apiUpdateMember(email,role,existing?.assigned_projects||[]);
       setMembers(m=>m.map(x=>x.email===email?{...x,role}:x));
     }catch(e){alert('שגיאה: '+e.message);}
   };
@@ -3892,17 +3903,19 @@ function AppSettingsPage({db}){
       </div>}
     </div>
 
-    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,maxWidth:480,marginBottom:16}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>אינטגרציות עתידיות</div>
+    <div style={{background:'rgba(26,32,48,0.75)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:12,padding:20,maxWidth:480,marginBottom:16}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>אינטגרציות</div>
       <div style={{display:'flex',flexDirection:'column',gap:10,marginTop:10}}>
         {[
-          {e:'📅',l:'Google Calendar',d:'סנכרון יומן לפגישות ומשימות',s:'בקרוב'},
+          {e:'📅',l:'Google Calendar',d:'סנכרון יומן לפגישות ומשימות',s:'פעיל'},
           {e:'🏛',l:'ועדות תכנון',d:'שאיבת דרישות היתר אוטומטית + AI',s:'בקרוב'},
           {e:'🤖',l:'AI Assistant',d:'ניתוח מסמכים וזיהוי דרישות',s:'בקרוב'},
-        ].map(({e,l,d,s})=><div key={l} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderRadius:9,border:'1px solid #F0EDE8',background:'#FAFAF8'}}>
+        ].map(({e,l,d,s})=><div key={l} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderRadius:9,border:'1px solid rgba(160,180,220,0.10)',background:'rgba(255,255,255,0.03)'}}>
           <span style={{fontSize:20}}>{e}</span>
-          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'#6B6B6B'}}>{l}</div><div style={{fontSize:12,color:'#B0B0B0'}}>{d}</div></div>
-          <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:999,background:'#F3F4F6',color:'#9CA3AF'}}>{s}</span>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'var(--color-steel-200)'}}>{l}</div><div style={{fontSize:12,color:'var(--color-steel-400)'}}>{d}</div></div>
+          <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:999,
+            background:s==='פעיל'?'rgba(61,143,95,0.2)':'rgba(74,90,120,0.25)',
+            color:s==='פעיל'?'#6fcf97':'var(--color-steel-400)'}}>{s}</span>
         </div>)}
       </div>
     </div>

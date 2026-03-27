@@ -25,10 +25,10 @@
 
 | # | Issue | Location | Notes |
 |---|-------|----------|-------|
-| A7 | `partners` in auto-save `useEffect` dependency array — `partners` is a derived value recalculated each render, causing the auto-save timer to fire on every render even when actual data hasn't changed | `index.html:1202` | Remove `partners` from deps array |
-| A8 | `.hc` CSS class used on project cards in `Dashboard` (for hover) but never defined in `<style>` | `index.html:2828` | Cards have no hover elevation effect |
-| A9 | Google Calendar already integrated but `AppSettingsPage` still lists it as "בקרוב" (coming soon) in the integrations panel | `index.html:3866` | Misleading UX |
-| A10 | `doChangeRole` always resets `assigned_projects` to `[]` when changing a member's role — data loss | `index.html:3796` | Should fetch/preserve existing `assigned_projects` |
+| A7 | ✅ `partners` in auto-save `useEffect` dependency array — `partners` is a derived value recalculated each render, causing the auto-save timer to fire on every render even when actual data hasn't changed | `index.html:1202` | Fixed: removed `partners` from deps array |
+| A8 | ✅ `.hc` CSS class used on project cards in `Dashboard` (for hover) but never defined in `<style>` | `index.html:2828` | Fixed in Run 3: `.hc:hover` defined in style block |
+| A9 | ✅ Google Calendar already integrated but `AppSettingsPage` still lists it as "בקרוב" (coming soon) in the integrations panel | `index.html:3866` | Fixed: changed to `s:'פעיל'` with green badge; section renamed to "אינטגרציות" |
+| A10 | ✅ `doChangeRole` always resets `assigned_projects` to `[]` when changing a member's role — data loss | `index.html:3796` | Fixed: reads existing member's `assigned_projects` and passes to `apiUpdateMember` |
 
 ### Low
 
@@ -52,10 +52,10 @@
 | B6 | Status badges use hardcoded colors not from branding semantic system | Medium | ✅ |
 | B7 | `Heebo` font referenced in CSS but not loaded via Google Fonts `<link>` — falls back to system font | High | ✅ |
 | B8 | `DM Sans` font referenced in sidebar but not loaded | Medium | ✅ |
-| B9 | All font sizes are hardcoded px values — branding requires `clamp()` fluid scale via CSS vars | Medium | ⬜ |
+| B9 | ✅ All font sizes are hardcoded px values — branding requires `clamp()` fluid scale via CSS vars | Medium | ✅ |
 | B10 | CSS `:root` uses old palette vars (`--green`, `--gold`, `--red`) instead of steel/gold system from branding.md | High | ✅ |
 | B11 | No `fadeSlideUp` / `.animate-appear` animation class defined — branding specifies it for panel transitions | Low | ✅ |
-| B12 | Inputs have no gold focus ring — branding specifies `gold focus ring` for inputs/dropdowns | Low | ⬜ |
+| B12 | ✅ Inputs have no gold focus ring — branding specifies `gold focus ring` for inputs/dropdowns | Low | ✅ |
 | B13 | App background is `#F5F4F0` (warm off-white) — branding background is `--color-steel-900` (`#0f1318`) | High | ✅ |
 
 ---
@@ -87,4 +87,4 @@
 
 ---
 
-*Last updated: Sentry Run 3 — 2026-03-27*
+*Last updated: Sentry Run 4 — 2026-03-27*

@@ -44,6 +44,22 @@ let _gAccessToken = '';    // kept for Google Drive backup only
 let _calToken = '';        // Google Calendar provider_token
 let _urlCode  = new URLSearchParams(window.location.search).get('code') || null; // captured before React mounts
 
+// Detect client Google Calendar OAuth callback (implicit flow — hash fragment)
+// When a BookingPage client connects their Google Calendar, we redirect them through
+// Google OAuth (implicit), which returns access_token in the URL hash.
+(function(){
+  try{
+    const h=new URLSearchParams(window.location.hash.slice(1));
+    const tok=h.get('access_token');
+    if(tok&&!_urlCode){
+      sessionStorage.setItem('arch_client_cal_token',tok);
+      const bk=sessionStorage.getItem('arch_book_token');
+      sessionStorage.removeItem('arch_book_token');
+      window.history.replaceState(null,'',bk?'?book='+bk:window.location.pathname);
+    }
+  }catch(e){}
+})();
+
 // ── Supabase Auth helpers ──────────────────────────────────────────────────────
 
 function sbAuthHeaders(extra) {
@@ -410,12 +426,13 @@ async function sbDeleteFile(path) {
 // ══════════════════════════════════════════════════════════════════════════
 function gCalReady(){ return !!_calToken; }
 
-async function gCalGetBusy(startDate,endDate){
-  if(!_calToken) return [];
+async function gCalGetBusy(startDate,endDate,token){
+  const tok=token||_calToken;
+  if(!tok) return [];
   try{
     const res=await fetch('https://www.googleapis.com/calendar/v3/freeBusy',{
       method:'POST',
-      headers:{'Authorization':'Bearer '+_calToken,'Content-Type':'application/json'},
+      headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},
       body:JSON.stringify({timeMin:new Date(startDate).toISOString(),timeMax:new Date(endDate).toISOString(),items:[{id:'primary'}]}),
     });
     if(!res.ok){console.warn('CalBusy err:',await res.text());return[];}
@@ -424,13 +441,15 @@ async function gCalGetBusy(startDate,endDate){
   }catch(e){console.warn('gCalGetBusy:',e);return[];}
 }
 
-async function gCalCreateEvent({title,description,startISO,endISO,attendeeEmail,location}){
+async function gCalCreateEvent({title,description,startISO,endISO,attendeeEmail,attendeeEmails,location}){
   if(!_calToken) throw new Error('לא מחובר ל-Google Calendar');
+  const _emails=[...(attendeeEmails||[])];
+  if(attendeeEmail&&!_emails.includes(attendeeEmail)) _emails.push(attendeeEmail);
   const event={
     summary:title, description,
     start:{dateTime:startISO,timeZone:'Asia/Jerusalem'},
     end:{dateTime:endISO,timeZone:'Asia/Jerusalem'},
-    attendees:attendeeEmail?[{email:attendeeEmail}]:[],
+    attendees:_emails.filter(Boolean).map(e=>({email:e})),
     location:location||undefined,
     reminders:{useDefault:false,overrides:[{method:'email',minutes:1440},{method:'popup',minutes:30}]},
   };
@@ -500,7 +519,7 @@ async function processConfirmedMeetings(){
         description:`פגישה עם ${confirmed.guestName}${req.note?'\n\n'+req.note:''}`,
         startISO:start.toISOString(),
         endISO:end.toISOString(),
-        attendeeEmail:confirmed.guestEmail||req.toEmail||'',
+        attendeeEmails:[confirmed.guestEmail||req.toEmail||'',...(req.attendees||[])].filter(Boolean),
         location:req.location||'',
       });
       await sbQuery(`meeting_requests?token=eq.${encodeURIComponent(row.token)}`,{
@@ -530,6 +549,14 @@ function BookingPage({token}){
   const [confirming,setConfirming]=useState(false);
   const [confirmed,setConfirmed]=useState(false);
   const [confirmErr,setConfirmErr]=useState('');
+  // Client Google Calendar integration (optional)
+  const [clientCalToken,setClientCalToken]=useState(()=>{try{return sessionStorage.getItem('arch_client_cal_token')||'';}catch(e){return '';}});
+  const [clientBusy,setClientBusy]=useState([]);
+
+  useEffect(()=>{
+    // Clear stored client cal token now that we've read it
+    try{if(clientCalToken)sessionStorage.removeItem('arch_client_cal_token');}catch(e){}
+  },[]);
 
   useEffect(()=>{
     loadMeetingRequest(token)
@@ -543,6 +570,31 @@ function BookingPage({token}){
       .catch(()=>setErr('שגיאה בטעינת הבקשה'))
       .finally(()=>setLoading(false));
   },[token]);
+
+  // Fetch client busy times once both token and req are available
+  useEffect(()=>{
+    if(!clientCalToken||!req?.slots?.length) return;
+    const dates=req.slots.map(s=>s.date);
+    const minDate=new Date(Math.min(...dates.map(d=>d.getTime())));
+    const maxDate=new Date(Math.max(...dates.map(d=>d.getTime())));
+    maxDate.setDate(maxDate.getDate()+1);
+    gCalGetBusy(minDate,maxDate,clientCalToken).then(b=>setClientBusy(b)).catch(()=>{});
+  },[clientCalToken,req]);
+
+  const connectClientCal=()=>{
+    try{sessionStorage.setItem('arch_book_token',token);}catch(e){}
+    const clientId='1049993992567-ek0ndfka0sd6opuron6n2j3ieknrs3fo.apps.googleusercontent.com';
+    const redirectUri='https://do-bonim-manage.netlify.app';
+    const scope='https://www.googleapis.com/auth/calendar.readonly';
+    window.location.href=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}&prompt=consent`;
+  };
+
+  const isClientSlotBusy=(s)=>{
+    if(!clientCalToken||!clientBusy.length) return false;
+    const ss=new Date(s.date);ss.setHours(s.hour,0,0,0);
+    const se=new Date(ss.getTime()+(s.duration||60)*60000);
+    return clientBusy.some(b=>{const bs=new Date(b.start),be=new Date(b.end);return bs<se&&be>ss;});
+  };
 
   const confirm=async()=>{
     if(!chosen||!name.trim()){setConfirmErr('נא למלא שם ולבחור זמן');return;}
@@ -605,6 +657,16 @@ function BookingPage({token}){
           {req.note}
         </div>}
 
+        {/* Client Google Calendar button */}
+        {!clientCalToken
+          ?<button onClick={connectClientCal}
+            style={{width:'100%',marginBottom:14,height:38,borderRadius:10,border:'1px solid #E8E6E1',background:'white',color:'#4A4A4A',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'Heebo,sans-serif',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+            📅 הצג את היומן שלי
+          </button>
+          :<div style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'#3D7A5A',marginBottom:14,padding:'7px 12px',background:'#EBF4EF',borderRadius:10,border:'1px solid #B7DFC9'}}>
+            ✅ יומן Google מחובר — זמינות מוצגת ליד כל מועד
+          </div>}
+
         {/* Slot list */}
         <div style={{fontSize:11,fontWeight:700,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>
           בחר זמן מועדף
@@ -612,6 +674,7 @@ function BookingPage({token}){
         <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
           {req.slots.map(s=>{
             const sel=chosen?.id===s.id;
+            const clientBusySlot=isClientSlotBusy(s);
             return<div key={s.id} onClick={()=>setChosen(s)}
               style={{padding:'14px 16px',borderRadius:12,border:`2px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#EBF4EF':'white',cursor:'pointer',display:'flex',alignItems:'center',gap:14,transition:'all .15s',boxShadow:sel?'0 2px 12px rgba(61,122,90,.15)':'none'}}>
               <div style={{width:46,height:46,borderRadius:10,background:sel?'#3D7A5A':'#F5F5F3',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
@@ -621,6 +684,7 @@ function BookingPage({token}){
               <div style={{flex:1}}>
                 <div style={{fontSize:14,fontWeight:600,color:'#1A1A1A'}}>{DAY_HE_F[s.date.getDay()]}, {fmtMD(s.date)}</div>
                 <div style={{fontSize:13,color:sel?'#2D5A42':'#6B6B6B'}}>{fmtTH(s.hour)}–{fmtTH(s.hour+Math.floor((s.duration||60)/60),(s.duration||60)%60)} · {s.duration||60} דקות</div>
+                {clientCalToken&&<div style={{fontSize:11,marginTop:3,color:clientBusySlot?'#DC2626':'#3D7A5A'}}>{clientBusySlot?'⚠ תפוס ביומן שלך':'✓ פנוי ביומן שלך'}</div>}
               </div>
               <div style={{width:26,height:26,borderRadius:'50%',border:`2px solid ${sel?'#3D7A5A':'#D0CEC9'}`,background:sel?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
                 {sel&&<span style={{color:'white',fontSize:13,fontWeight:700}}>✓</span>}
@@ -664,10 +728,14 @@ function BookingPage({token}){
 // ══════════════════════════════════════════════════════════════════════════
 // MEETING SCHEDULER MODAL — for staff (admin/manager/drafter)
 // ══════════════════════════════════════════════════════════════════════════
-function MeetingScheduler({project,onClose}){
+function MeetingScheduler({project,onClose,officeMembers=[]}){
   const proj=project||{name:'פגישה',client_email:''};
+  const myEmail=_sbUserEmail||sessionStorage.getItem('arch_email')||'';
+  // Office members eligible as meeting attendees (exclude client role)
+  const meetingMembers=(officeMembers||[]).filter(m=>m.role!=='client');
   const [step,setStep]=useState(1);
   const [selectedSlots,setSelectedSlots]=useState([]);
+  const [selectedAttendees,setSelectedAttendees]=useState(()=>[myEmail].filter(Boolean));
   const [busySlots,setBusySlots]=useState([]);
   const [loadingCal,setLoadingCal]=useState(false);
   const [calError,setCalError]=useState('');
@@ -754,6 +822,7 @@ function MeetingScheduler({project,onClose}){
         hostEmail:_sbUserEmail||sessionStorage.getItem('arch_email')||'',
         toEmail:compForm.to,
         toName:compForm.toName,
+        attendees:selectedAttendees,
         createdAt:new Date().toISOString(),
       };
       await saveMeetingRequest(req);
@@ -782,6 +851,25 @@ function MeetingScheduler({project,onClose}){
           </button>)}
         </div>
       </div>
+      {/* Attendees */}
+      {meetingMembers.length>1&&<div>
+        <div style={lblSt}>משתתפים מהמשרד</div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+          {meetingMembers.map(m=>{
+            const isMe=m.email===myEmail;
+            const sel=selectedAttendees.includes(m.email);
+            const toggle=()=>{if(isMe)return;setSelectedAttendees(prev=>sel?prev.filter(e=>e!==m.email):[...prev,m.email]);};
+            return<div key={m.email} onClick={toggle}
+              style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#EBF4EF':'white',cursor:isMe?'default':'pointer',display:'flex',alignItems:'center',gap:6,fontSize:12}}>
+              <div style={{width:14,height:14,borderRadius:4,border:`2px solid ${sel?'#3D7A5A':'#D0CEC9'}`,background:sel?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                {sel&&<span style={{color:'white',fontSize:8,fontWeight:700}}>✓</span>}
+              </div>
+              <span style={{fontWeight:sel?600:400,color:isMe?'#2D5A42':'#1A1A1A'}}>{m.name||m.email}</span>
+              {isMe?<span style={{fontSize:10,color:'#9C9C9C'}}>(אתה)</span>:<span style={{fontSize:10,color:'#B0B0B0'}}>⚠ לא ניתן לאמת יומן</span>}
+            </div>;
+          })}
+        </div>
+      </div>}
       {/* Cal status */}
       {!gCalReady()&&<div style={{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#B45309'}}>
         ⚠️ לא מחובר ל-Google Calendar — <strong>התנתק והתחבר מחדש</strong> כדי לטעון שעות תפוסות אוטומטית. בינתיים ניתן לבחור שעות ידנית.
@@ -2642,7 +2730,7 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'log',l:'לוג',e:'📋'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
   const [showScheduler,setShowScheduler]=useState(false);
   return<div>
-    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)}/>}
+    {showScheduler&&<MeetingScheduler project={project} officeMembers={db.officeMembers||[]} onClose={()=>setShowScheduler(false)}/>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}><span style={{color:'#9C9C9C',cursor:'pointer'}} onClick={onBack}>לוח בקרה</span><span style={{color:'#C0C0C0'}}>/</span><span style={{color:'#1A1A1A',fontWeight:600}}>{project.name}</span></div>
       <div style={{display:'flex',gap:8}}>

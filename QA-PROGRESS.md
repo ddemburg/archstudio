@@ -1,5 +1,5 @@
 # ArchStudio QA Progress Report
-**Sentry Batch 3 — Run 3 (UI Upgrade — Glass & Colors)**
+**Sentry Batch 3 — Run 4 (Typography + Polish)**
 **Date:** 2026-03-28
 **Branch:** sentry/2026-03-28
 
@@ -51,8 +51,9 @@
 | U3 | Status badges hardcoded colors | ✅ Fixed (Batch 1, Run 3) |
 | U4 | Primary buttons wrong style | ✅ Fixed (Batch 1, Run 3) |
 | U5 | Sidebar active state green instead of gold | ✅ Fixed (Batch 1, Run 3) |
-| U6 | No fluid typography | ✅ Fixed (Batch 1, Run 4) |
-| U7 | No transition animations | ✅ Fixed (Batch 1, Run 4) |
+| U6 | No fluid typography | ✅ Fixed (Batch 1, Run 4); extended (Batch 3, Run 4) — glass-lbl, I/TA/SE, Btn, SBadge, Modal, login, sidebar all use var(--text-*) |
+| U7 | No transition animations | ✅ Fixed (Batch 1, Run 4); extended (Batch 3, Run 4) — .hc hover class added, sidebar project btn hover, modal close btn hover, login btn transition, new-project dashed btn hover |
+| U9 | Login spinner missing @keyframes spin | ✅ Fixed (Batch 3, Run 4) — added spin keyframe to CSS |
 | U8 | Login footer says "Google Drive" (should be Supabase) | ✅ Fixed (Batch 3, Run 2) — now reads "הנתונים מאובטחים ב-Supabase" |
 
 ---
@@ -74,10 +75,10 @@
 | 🔴 Critical | 2 | 2 | 0 |
 | 🟠 High | 6 | 5 | 1 |
 | 🟡 Medium | 6 | 5 | 1 |
-| 🔵 UI Gaps | 8 | 8 | 0 |
+| 🔵 UI Gaps | 9 | 9 | 0 |
 | ⬜ Feature Gaps | 3 | 1 | 2 |
 | **Misc (A9, A10, B8)** | 3 | 3 | 0 |
-| **Total** | **28** | **24** | **4** |
+| **Total** | **29** | **25** | **4** |
 
 ---
 
@@ -95,3 +96,4 @@
 | Batch 3 — Run 1 | ✅ Complete | Re-audit — catalogued 9 remaining items |
 | Batch 3 — Run 2 | ✅ Complete | 8 fixes: H6, M3, M4, M5, B8, U8, A9, A10 |
 | Batch 3 — Run 3 | ✅ Complete | UI upgrade — glass inputs, dark project cards, dark list rows (10 areas) |
+| Batch 3 — Run 4 | ✅ Complete | Typography + polish — fluid text vars on 7 component groups, @keyframes spin fix, .hc hover class, sidebar micro-interactions |

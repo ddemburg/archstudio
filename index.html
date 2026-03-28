@@ -2618,7 +2618,7 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
 function LogTab({project}){
   const log=[...(project.project_log||[])].reverse(); // newest first
   const ACTION_CFG={
-    status:  {e:'🔄', label:(e)=>`${e.taskTitle}: ${STATUS_MAP[e.from]||e.from} ← ${STATUS_MAP[e.to]||e.to}`},
+    status:  {e:'🔄', label:(e)=>`${e.taskTitle}: ${(STATUS_MAP[e.from]?.heb)||e.from} ← ${(STATUS_MAP[e.to]?.heb)||e.to}`},
     add:     {e:'➕', label:(e)=>`נוספה: "${e.taskTitle}"`},
     delete:  {e:'🗑', label:(e)=>`נמחקה: "${e.taskTitle}"`},
     rename:  {e:'✏️', label:(e)=>`שונה שם: "${e.from}" → "${e.to}"`},
@@ -2880,7 +2880,7 @@ function AllTasksPage({db,nav}){
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
@@ -2931,7 +2931,7 @@ function PartnersPage({db,nav}){
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
               ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
-              :<Av name={p.name} size={44} color={p.color}/>}
+              :<Av u={p} size={44}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
               <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>
@@ -2950,7 +2950,7 @@ function PartnersPage({db,nav}){
     </div>
     {db.partners.length===0&&<div style={{textAlign:'center',padding:60,color:'#B0B0B0',fontSize:14}}>
       אין חברי צוות עדיין.<br/>
-      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav('appsettings')}>הוסף דרך הגדרות</Btn>
+      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav.toSettings()}>הוסף דרך הגדרות</Btn>
     </div>}
   </div>;
 }

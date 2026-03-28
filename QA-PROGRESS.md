@@ -1,5 +1,5 @@
 # ArchStudio QA Progress Report
-**Sentry Batch 3 — Run 2 (Critical+High Fixes)**
+**Sentry Batch 3 — Run 3 (UI Upgrade — Glass & Colors)**
 **Date:** 2026-03-28
 **Branch:** sentry/2026-03-28
 
@@ -94,3 +94,4 @@
 | Batch 2 — Final | ✅ Complete | 4 remaining High bugs fixed + report |
 | Batch 3 — Run 1 | ✅ Complete | Re-audit — catalogued 9 remaining items |
 | Batch 3 — Run 2 | ✅ Complete | 8 fixes: H6, M3, M4, M5, B8, U8, A9, A10 |
+| Batch 3 — Run 3 | ✅ Complete | UI upgrade — glass inputs, dark project cards, dark list rows (10 areas) |

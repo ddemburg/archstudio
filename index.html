@@ -51,6 +51,10 @@
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:#2e3a52;border-radius:10px}
+  .glass-input{background:rgba(26,32,48,0.6)!important;border:1px solid rgba(160,180,220,0.15)!important;color:#d4dbe8!important;outline:none}
+  .glass-input:focus{border-color:rgba(201,152,58,0.5)!important;box-shadow:0 0 0 2px rgba(201,152,58,0.1)!important}
+  .glass-input::placeholder{color:rgba(176,189,212,0.45)!important}
+  .glass-lbl{display:block;font-size:11px;font-weight:600;color:#7a8fb0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
 </style>
 </head>
 <body>
@@ -798,7 +802,7 @@ function MeetingScheduler({project,onClose}){
   };
 
   const uC=(k,v)=>setCompForm(f=>({...f,[k]:v}));
-  const inpSt={width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif',background:'white',outline:'none',boxSizing:'border-box'};
+  const inpSt={width:'100%',height:38,padding:'0 10px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:8,fontSize:13,fontFamily:'Heebo,sans-serif',background:'rgba(26,32,48,0.6)',outline:'none',boxSizing:'border-box',color:'#d4dbe8'};
   const lblSt={display:'block',fontSize:11,fontWeight:700,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:5};
   const STEPS=[{n:1,l:'בחר סלוטים'},{n:2,l:'הגדר שליחה'},{n:3,l:'קישור מוכן'}];
 
@@ -1327,9 +1331,9 @@ function useApp(){
 }
 
 // ─── Base UI ──────────────────────────────────────────────────────────────────
-const I=({label,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<input style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',background:'white'}} {...p}/></label>);
-const TA=({label,rows=3,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<textarea rows={rows} style={{width:'100%',padding:'7px 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',resize:'none',background:'white'}} {...p}/></label>);
-const SE=({label,children,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<select style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',background:'white'}} {...p}>{children}</select></label>);
+const I=({label,...p})=>(<label style={{display:'block'}}>{label&&<span className="glass-lbl">{label}</span>}<input className="glass-input" style={{width:'100%',height:38,padding:'0 10px',borderRadius:7,fontSize:13}} {...p}/></label>);
+const TA=({label,rows=3,...p})=>(<label style={{display:'block'}}>{label&&<span className="glass-lbl">{label}</span>}<textarea rows={rows} className="glass-input" style={{width:'100%',padding:'7px 10px',borderRadius:7,fontSize:13,resize:'none'}} {...p}/></label>);
+const SE=({label,children,...p})=>(<label style={{display:'block'}}>{label&&<span className="glass-lbl">{label}</span>}<select className="glass-input" style={{width:'100%',height:38,padding:'0 10px',borderRadius:7,fontSize:13}} {...p}>{children}</select></label>);
 const Btn=({children,v='primary',sz='md',sx={},...p})=>{
   const V={primary:{background:'linear-gradient(135deg,rgba(201,152,58,0.25),rgba(201,152,58,0.12))',color:'#e0b255',border:'1px solid rgba(201,152,58,0.45)',backdropFilter:'blur(8px)'},accent:{background:'var(--green)',color:'white',border:'none'},outline:{background:'rgba(26,32,48,0.6)',color:'#b0bdd4',border:'1px solid rgba(160,180,220,0.2)'},ghost:{background:'transparent',color:'var(--text2)',border:'none'},danger:{background:'rgba(143,61,61,0.15)',color:'#f08080',border:'1px solid rgba(143,61,61,0.4)'}};
   const S={sm:{height:30,padding:'0 10px',fontSize:12},md:{height:38,padding:'0 14px',fontSize:13},lg:{height:42,padding:'0 22px',fontSize:14}};
@@ -1533,9 +1537,9 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
             })}
           </div>},
           {label:'עדיפות',content:<div style={{display:'flex',gap:5}}>{[{id:'High',label:'גבוהה',bg:'#FEE2E2',activeBg:'#EF4444'},{id:'Medium',label:'בינונית',bg:'#FEF9C3',activeBg:'#EAB308'},{id:'Low',label:'נמוכה',bg:'#F3F4F6',activeBg:'#D1D5DB'}].map(p=>{const isA=(task.priority||'Medium')===p.id;return<button key={p.id} onClick={()=>u('priority',p.id)} style={{flex:1,height:28,borderRadius:7,border:'none',fontSize:11,fontWeight:isA?700:400,cursor:'pointer',background:isA?p.activeBg:p.bg,color:'#1A1A1A',fontFamily:'Heebo,sans-serif',transition:'all .15s',whiteSpace:'nowrap'}}>{p.label}</button>;})}</div>},
-          {label:'דד ליין',content:<div style={{display:'flex',gap:5,alignItems:'center'}}><input type="date" value={task.deadline||''} onChange={e=>u('deadline',e.target.value)} style={{flex:1,height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,background:'white',fontFamily:'Heebo,sans-serif'}}/>{task.deadline&&<button onClick={()=>u('deadline','')} title='הסר תאריך' style={{height:30,width:30,borderRadius:6,border:'1px solid #E8E6E1',background:'white',cursor:'pointer',fontSize:14,color:'#9C9C9C',flexShrink:0}}>×</button>}</div>},
-          {label:'אחראי',content:<><select value={task.assignee_id||''} onChange={e=>u('assignee_id',e.target.value)} style={{width:'100%',height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,background:'white',fontFamily:'Heebo,sans-serif'}}><option value="">— ללא שיוך —</option>{partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>{assignee&&<div style={{display:'flex',alignItems:'center',gap:6,marginTop:5}}><Av u={assignee} size={22}/><span style={{fontSize:12}}>{assignee.name}</span></div>}</>},
-          {label:'קטגוריה',content:<input value={task.section||''} onChange={e=>u('section',e.target.value)} placeholder="הנדסה, עיצוב..." style={{width:'100%',height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,background:'white',fontFamily:'Heebo,sans-serif'}}/>},
+          {label:'דד ליין',content:<div style={{display:'flex',gap:5,alignItems:'center'}}><input type="date" value={task.deadline||''} onChange={e=>u('deadline',e.target.value)} style={{flex:1,height:30,padding:'0 8px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:6,fontSize:13,background:'rgba(26,32,48,0.6)',color:'#d4dbe8',fontFamily:'Heebo,sans-serif'}}/>{task.deadline&&<button onClick={()=>u('deadline','')} title='הסר תאריך' style={{height:30,width:30,borderRadius:6,border:'1px solid rgba(160,180,220,0.15)',background:'rgba(26,32,48,0.6)',cursor:'pointer',fontSize:14,color:'#7a8fb0',flexShrink:0}}>×</button>}</div>},
+          {label:'אחראי',content:<><select value={task.assignee_id||''} onChange={e=>u('assignee_id',e.target.value)} style={{width:'100%',height:30,padding:'0 8px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:6,fontSize:13,background:'rgba(26,32,48,0.6)',color:'#d4dbe8',fontFamily:'Heebo,sans-serif'}}><option value="">— ללא שיוך —</option>{partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>{assignee&&<div style={{display:'flex',alignItems:'center',gap:6,marginTop:5}}><Av u={assignee} size={22}/><span style={{fontSize:12,color:'#b0bdd4'}}>{assignee.name}</span></div>}</>},
+          {label:'קטגוריה',content:<input value={task.section||''} onChange={e=>u('section',e.target.value)} placeholder="הנדסה, עיצוב..." style={{width:'100%',height:30,padding:'0 8px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:6,fontSize:13,background:'rgba(26,32,48,0.6)',color:'#d4dbe8',fontFamily:'Heebo,sans-serif'}}/>},
           {label:'פרויקט',content:<span style={{fontSize:13}}>{proj?.name||'—'}</span>},
           {label:'תת של',content:(<div>
             {task.parent_task_id
@@ -1544,7 +1548,7 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
                   <button onClick={()=>u('parent_task_id',null)} style={{fontSize:11,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:5,padding:'2px 8px',cursor:'pointer',color:'#DC2626',fontFamily:'Heebo,sans-serif'}}>הסר</button>
                 </div>
               :<select onChange={e=>{if(e.target.value)u('parent_task_id',e.target.value);}} defaultValue=""
-                  style={{width:'100%',height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:12,background:'white',fontFamily:'Heebo,sans-serif'}}>
+                  style={{width:'100%',height:30,padding:'0 8px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:6,fontSize:12,background:'rgba(26,32,48,0.6)',color:'#d4dbe8',fontFamily:'Heebo,sans-serif'}}>
                   <option value="">— עצמאית —</option>
                   {allTasks.filter(t=>t.id!==task.id&&t.project_id===task.project_id&&!t.parent_task_id).map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
                 </select>}
@@ -1731,9 +1735,9 @@ function FlowView({tasks,allTasks,allProjects,partners,db,onOpenTask}){
       <span style={{fontSize:11,color:'#9C9C9C'}}>לחץ על משימה לפתיחה • גרור בקנבן</span>
     </div>
 
-    {tasks.length===0&&<div style={{background:'white',border:'1px solid var(--border)',borderRadius:12,padding:60,textAlign:'center',color:'#9C9C9C'}}><div style={{fontSize:36,marginBottom:8}}>🗺</div><div>אין משימות — הוסף משימות ברשימה</div></div>}
+    {tasks.length===0&&<div style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:12,padding:60,textAlign:'center',color:'#4a5a78'}}><div style={{fontSize:36,marginBottom:8}}>🗺</div><div>אין משימות — הוסף משימות ברשימה</div></div>}
 
-    {tasks.length>0&&<div style={{overflowX:'auto',overflowY:'auto',background:'white',border:'1px solid var(--border)',borderRadius:14,padding:8}}>
+    {tasks.length>0&&<div style={{overflowX:'auto',overflowY:'auto',background:'rgba(26,32,48,0.75)',backdropFilter:'blur(12px) saturate(1.4)',WebkitBackdropFilter:'blur(12px) saturate(1.4)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:14,padding:8}}>
       <svg ref={svgRef} width={svgW} height={svgH} style={{display:'block'}}>
         <defs>
           <marker id="arr-gray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
@@ -2146,7 +2150,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
             {/* Section name */}
             {editSec===sec
-              ?<input autoFocus defaultValue={sec} onBlur={e=>renameSec(sec,e.target.value)} onKeyDown={e=>{if(e.key==='Enter')renameSec(sec,e.target.value);if(e.key==='Escape')setES(null);}} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',border:'1px solid #4a7c5e',borderRadius:4,padding:'1px 6px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
+              ?<input autoFocus defaultValue={sec} onBlur={e=>renameSec(sec,e.target.value)} onKeyDown={e=>{if(e.key==='Enter')renameSec(sec,e.target.value);if(e.key==='Escape')setES(null);}} style={{fontSize:11,fontWeight:700,textTransform:'uppercase',border:'1px solid rgba(61,143,95,0.5)',borderRadius:4,padding:'1px 6px',outline:'none',fontFamily:'Heebo,sans-serif',background:'rgba(26,32,48,0.7)',color:'#d4dbe8'}}/>
               :<><span style={{fontSize:11,fontWeight:700,color:secDone?'#3D7A5A':'#6B6B6B',textTransform:'uppercase',letterSpacing:'.06em',cursor:'text',textDecoration:secDone?'line-through':''}} onDoubleClick={()=>setES(sec)} title="לחץ פעמיים לשינוי שם">{sec}</span>
                 <span style={{fontSize:11,color:'#B0B0B0'}}>{st.filter(t=>t.status==='Done').length}/{st.length}</span>
                 <button onClick={()=>setES(sec)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:11,padding:2}} title="שנה שם" onMouseOver={e=>e.target.style.color='#8C8C8C'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>✏️</button></>}
@@ -2178,15 +2182,15 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
             </div>}
           </div>;
         })()}
-        {exp&&<div style={{background:'white',border:'1px solid #F0EDE8',borderRadius:10,overflow:'hidden'}}>
-          {st.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
+        {exp&&<div style={{background:'rgba(26,32,48,0.5)',border:'1px solid rgba(160,180,220,0.08)',borderRadius:10,overflow:'hidden'}}>
+          {st.length===0&&<p style={{fontSize:12,color:'#4a5a78',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
           {st.map(t=><TaskRow key={t.id} task={t} depth={0} ctx={taskRowCtx}/>)}
           {addingIn===sec
-            ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid #F5F5F3'}}>
-              <input autoFocus value={newTitle} onChange={e=>setNT(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addTask(sec);if(e.key==='Escape')setAI(null);}} placeholder="שם משימה..." style={{flex:1,height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
+            ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid rgba(160,180,220,0.08)'}}>
+              <input autoFocus value={newTitle} onChange={e=>setNT(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addTask(sec);if(e.key==='Escape')setAI(null);}} placeholder="שם משימה..." style={{flex:1,height:30,padding:'0 8px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:6,fontSize:13,fontFamily:'Heebo,sans-serif',background:'rgba(26,32,48,0.6)',color:'#d4dbe8'}}/>
               <Btn sz="sm" v="accent" onClick={()=>addTask(sec)}>הוסף</Btn><Btn sz="sm" v="ghost" onClick={()=>setAI(null)}>ביטול</Btn>
             </div>
-            :<button onClick={()=>setAI(sec)} className="hr" style={{width:'100%',textAlign:'right',padding:'7px 14px',fontSize:12,color:'#B0B0B0',background:'none',border:'none',borderTop:'1px solid #F5F5F3',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ הוסף משימה לקטגוריה</button>}
+            :<button onClick={()=>setAI(sec)} className="hr" style={{width:'100%',textAlign:'right',padding:'7px 14px',fontSize:12,color:'#4a5a78',background:'none',border:'none',borderTop:'1px solid rgba(160,180,220,0.08)',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ הוסף משימה לקטגוריה</button>}
         </div>}
       </div>;
     })}
@@ -2357,41 +2361,41 @@ function MilestonesTab({project,db}){
     </div>}
 
     {/* Cashflow chart */}
-    {ms.some(m=>m.payment_amount>0)&&<div style={{background:'white',border:'1px solid #E8E5DF',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+    {ms.some(m=>m.payment_amount>0)&&<div style={{background:'rgba(26,32,48,0.75)',backdropFilter:'blur(12px)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-        <span style={{fontSize:13,fontWeight:600}}>תזרים הכנסות צפוי</span>
-        <button onClick={()=>setShowChart(!showChart)} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:'#9C9C9C',fontFamily:'Heebo,sans-serif'}}>{showChart?'הסתר ▲':'הצג ▼'}</button>
+        <span style={{fontSize:13,fontWeight:600,color:'#d4dbe8'}}>תזרים הכנסות צפוי</span>
+        <button onClick={()=>setShowChart(!showChart)} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:'#7a8fb0',fontFamily:'Heebo,sans-serif'}}>{showChart?'הסתר ▲':'הצג ▼'}</button>
       </div>
       {showChart&&<CashflowChart ms={ms}/>}
     </div>}
 
     {/* Add row */}
     <div style={{display:'flex',gap:8,marginBottom:14}}>
-      <input value={nn} onChange={e=>setNN(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder="שם אבן דרך..." style={{flex:1,height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
-      <input value={na} onChange={e=>setNA(e.target.value)} type="number" placeholder="סכום ₪" style={{width:100,height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
+      <input value={nn} onChange={e=>setNN(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder="שם אבן דרך..." style={{flex:1,height:38,padding:'0 10px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif',background:'rgba(26,32,48,0.6)',color:'#d4dbe8'}}/>
+      <input value={na} onChange={e=>setNA(e.target.value)} type="number" placeholder="סכום ₪" style={{width:100,height:38,padding:'0 10px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif',background:'rgba(26,32,48,0.6)',color:'#d4dbe8'}}/>
       <Btn onClick={add}>+ הוסף</Btn>
     </div>
 
     {/* Milestone rows */}
     {ms.map((m,i)=>{
       const isOverdue=m.expected_date&&new Date(m.expected_date)<today&&!m.completed;
-      return<div key={i} style={{background:'white',border:'1px solid '+(isOverdue?'#FECACA':'#E8E6E1'),borderRadius:10,padding:'12px 14px',marginBottom:8,transition:'all .2s'}}>
+      return<div key={i} style={{background:'rgba(26,32,48,0.6)',border:'1px solid '+(isOverdue?'rgba(143,61,61,0.4)':'rgba(160,180,220,0.12)'),borderRadius:10,padding:'12px 14px',marginBottom:8,transition:'all .2s'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:m.payment_amount?8:0}}>
           {/* Complete toggle */}
-          <div onClick={()=>tog(i)} style={{width:24,height:24,borderRadius:'50%',border:'2px solid '+(m.completed?'#3D7A5A':'#D0CEC9'),background:m.completed?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,transition:'all .2s'}}>
+          <div onClick={()=>tog(i)} style={{width:24,height:24,borderRadius:'50%',border:'2px solid '+(m.completed?'#3d8f5f':'rgba(160,180,220,0.3)'),background:m.completed?'#3d8f5f':'transparent',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,transition:'all .2s'}}>
             {m.completed&&<span style={{color:'white',fontSize:10,fontWeight:700}}>✓</span>}
           </div>
           <div style={{flex:1}}>
-            <div style={{fontSize:13,fontWeight:500,color:m.completed?'#9C9C9C':'#1A1A1A',textDecoration:m.completed?'line-through':''}}>{m.name}</div>
-            {m.completed&&m.date&&<div style={{fontSize:11,color:'#3D7A5A',marginTop:1}}>✓ הושלם {fmtD(m.date)}</div>}
+            <div style={{fontSize:13,fontWeight:500,color:m.completed?'#4a5a78':'#d4dbe8',textDecoration:m.completed?'line-through':''}}>{m.name}</div>
+            {m.completed&&m.date&&<div style={{fontSize:11,color:'#7dd4a8',marginTop:1}}>✓ הושלם {fmtD(m.date)}</div>}
           </div>
           {/* Expected date */}
           <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:2,flexShrink:0}}>
-            <span style={{fontSize:10,color:'#B0B0B0',textTransform:'uppercase',letterSpacing:'.04em'}}>צפי</span>
+            <span style={{fontSize:10,color:'#4a5a78',textTransform:'uppercase',letterSpacing:'.04em'}}>צפי</span>
             <input type="date" value={m.expected_date||''} onChange={e=>updField(i,'expected_date',e.target.value)}
-              style={{height:26,padding:'0 6px',border:'1px solid '+(isOverdue?'#FECACA':'#E8E6E1'),borderRadius:6,fontSize:11,color:isOverdue?'#DC2626':'#1A1A1A',background:isOverdue?'#FEF2F2':'white',fontFamily:'Heebo,sans-serif',width:130}}/>
+              style={{height:26,padding:'0 6px',border:'1px solid '+(isOverdue?'rgba(143,61,61,0.5)':'rgba(160,180,220,0.15)'),borderRadius:6,fontSize:11,color:isOverdue?'#f08080':'#d4dbe8',background:'rgba(26,32,48,0.6)',fontFamily:'Heebo,sans-serif',width:130}}/>
           </div>
-          <button onClick={()=>rem(i)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14,flexShrink:0}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
+          <button onClick={()=>rem(i)} style={{background:'none',border:'none',cursor:'pointer',color:'#4a5a78',fontSize:14,flexShrink:0}} onMouseOver={e=>e.target.style.color='#f08080'} onMouseOut={e=>e.target.style.color='#4a5a78'}>🗑</button>
         </div>
         {/* Payment row */}
         {m.payment_amount>0&&<div style={{display:'flex',alignItems:'center',gap:8,paddingTop:8,borderTop:'1px solid #F5F5F3'}}>
@@ -2420,19 +2424,19 @@ function DocsTab({docs,pid,db}){
   const add=()=>{if(!form.name.trim())return;db.addDoc({project_id:pid,...form});setF({name:'',category:'Other'});setSF(false);};
   return<div>
     {!sf?<Btn v="outline" sx={{marginBottom:14,borderStyle:'dashed'}} onClick={()=>setSF(true)}>📎 הוסף מסמך</Btn>
-    :<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+    :<div style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
       <I label="שם" value={form.name} onChange={e=>setF(f=>({...f,name:e.target.value}))} placeholder='תוכנית קומה v3'/>
       <SE label="קטגוריה" value={form.category} onChange={e=>setF(f=>({...f,category:e.target.value}))}>{cats.map(c=><option key={c}>{c}</option>)}</SE>
       <I label="תוקף (לא חובה)" type="date" value={form.expiry||''} onChange={e=>setF(f=>({...f,expiry:e.target.value}))}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn v="ghost" sz="sm" onClick={()=>setSF(false)}>ביטול</Btn><Btn sz="sm" onClick={add}>הוסף</Btn></div>
     </div>}
-    {docs.length===0&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:40,textAlign:'center',color:'#8C8C8C'}}><div style={{fontSize:28,marginBottom:6}}>📄</div><div>אין מסמכים</div></div>}
-    {docs.map(d=>{const [bg,col]=(CC[d.category]||CC.Other).split('|');return<div key={d.id} className="hc" style={{display:'flex',alignItems:'center',gap:10,background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:'10px 14px',marginBottom:7,transition:'all .2s'}}>
-      <span style={{fontSize:20}}>📄</span><div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{d.name}</div><span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,display:'inline-block',marginTop:2,background:bg,color:col}}>{d.category}</span></div>
-      {d.expiry&&expired(d.expiry)&&<span style={{fontSize:10,background:'#FEF2F2',color:'#DC2626',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג תוקף</span>}
-      {d.expiry&&soon(d.expiry)&&!expired(d.expiry)&&<span style={{fontSize:10,background:'#FFFBEB',color:'#B45309',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג בקרוב</span>}
-      {d.expiry&&<span style={{fontSize:11,color:'#9C9C9C',whiteSpace:'nowrap'}}>{fmtD(d.expiry)}</span>}
-      <button onClick={()=>db.delDoc(d.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
+    {docs.length===0&&<div style={{background:'rgba(26,32,48,0.5)',border:'1px solid rgba(160,180,220,0.1)',borderRadius:10,padding:40,textAlign:'center',color:'#4a5a78'}}><div style={{fontSize:28,marginBottom:6}}>📄</div><div>אין מסמכים</div></div>}
+    {docs.map(d=>{const [bg,col]=(CC[d.category]||CC.Other).split('|');return<div key={d.id} className="hc" style={{display:'flex',alignItems:'center',gap:10,background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:'10px 14px',marginBottom:7,transition:'all .2s'}}>
+      <span style={{fontSize:20}}>📄</span><div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'#d4dbe8'}}>{d.name}</div><span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,display:'inline-block',marginTop:2,background:bg,color:col}}>{d.category}</span></div>
+      {d.expiry&&expired(d.expiry)&&<span style={{fontSize:10,background:'rgba(143,61,61,0.2)',color:'#f08080',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג תוקף</span>}
+      {d.expiry&&soon(d.expiry)&&!expired(d.expiry)&&<span style={{fontSize:10,background:'rgba(184,130,42,0.2)',color:'#f0c060',padding:'1px 7px',borderRadius:4,fontWeight:700,whiteSpace:'nowrap'}}>פג בקרוב</span>}
+      {d.expiry&&<span style={{fontSize:11,color:'#7a8fb0',whiteSpace:'nowrap'}}>{fmtD(d.expiry)}</span>}
+      <button onClick={()=>db.delDoc(d.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#4a5a78',fontSize:14}} onMouseOver={e=>e.target.style.color='#f08080'} onMouseOut={e=>e.target.style.color='#4a5a78'}>🗑</button>
     </div>;})}
   </div>;
 }
@@ -2440,22 +2444,22 @@ function DocsTab({docs,pid,db}){
 // ─── Requests ────────────────────────────────────────────────────────────────
 function ReqsTab({reqs,pid,db}){
   const [sf,setSF]=useState(false);const [form,setF]=useState({document_name:'',description:'',due_date:''});
-  const ST={Pending:{bg:'#FFFBEB',col:'#B45309'},Uploaded:{bg:'#EFF6FF',col:'#1D4ED8'},Approved:{bg:'#ECFDF5',col:'#065F46'},Rejected:{bg:'#FEF2F2',col:'#DC2626'}};
+  const ST={Pending:{bg:'rgba(184,130,42,0.2)',col:'#f0c060'},Uploaded:{bg:'rgba(61,102,143,0.2)',col:'#90b8e0'},Approved:{bg:'rgba(61,143,95,0.2)',col:'#7dd4a8'},Rejected:{bg:'rgba(143,61,61,0.2)',col:'#f08080'}};
   const add=()=>{if(!form.document_name.trim())return;db.addReq({project_id:pid,...form,status:'Pending'});setF({document_name:'',description:'',due_date:''});setSF(false);};
   return<div>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><p style={{fontSize:13,color:'#8C8C8C'}}>בקש מסמכים מהלקוח</p><Btn v="outline" sz="sm" sx={{borderStyle:'dashed'}} onClick={()=>setSF(true)}>+ בקשה</Btn></div>
-    {sf&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><p style={{fontSize:13,color:'#7a8fb0'}}>בקש מסמכים מהלקוח</p><Btn v="outline" sz="sm" sx={{borderStyle:'dashed'}} onClick={()=>setSF(true)}>+ בקשה</Btn></div>
+    {sf&&<div style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
       <I label="שם" value={form.document_name} onChange={e=>setF(f=>({...f,document_name:e.target.value}))} placeholder="נסח טאבו"/>
       <TA label="הוראות" value={form.description} onChange={e=>setF(f=>({...f,description:e.target.value}))} rows={2}/>
       <I label="יעד" type="date" value={form.due_date} onChange={e=>setF(f=>({...f,due_date:e.target.value}))}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn v="ghost" sz="sm" onClick={()=>setSF(false)}>ביטול</Btn><Btn sz="sm" onClick={add}>הוסף</Btn></div>
     </div>}
-    {reqs.length===0&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:40,textAlign:'center',color:'#8C8C8C'}}><div style={{fontSize:28,marginBottom:6}}>📋</div><div>אין בקשות</div></div>}
-    {reqs.map(r=>{const st=ST[r.status]||ST.Pending;return<div key={r.id} style={{display:'flex',alignItems:'center',gap:10,background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:'10px 14px',marginBottom:7}}>
-      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{r.document_name}</div>{r.description&&<div style={{fontSize:12,color:'#8C8C8C'}}>{r.description}</div>}{r.due_date&&<div style={{fontSize:11,color:'#8C8C8C'}}>יעד: {fmtD(r.due_date)}</div>}</div>
+    {reqs.length===0&&<div style={{background:'rgba(26,32,48,0.5)',border:'1px solid rgba(160,180,220,0.1)',borderRadius:10,padding:40,textAlign:'center',color:'#4a5a78'}}><div style={{fontSize:28,marginBottom:6}}>📋</div><div>אין בקשות</div></div>}
+    {reqs.map(r=>{const st=ST[r.status]||ST.Pending;return<div key={r.id} style={{display:'flex',alignItems:'center',gap:10,background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:'10px 14px',marginBottom:7}}>
+      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'#d4dbe8'}}>{r.document_name}</div>{r.description&&<div style={{fontSize:12,color:'#7a8fb0'}}>{r.description}</div>}{r.due_date&&<div style={{fontSize:11,color:'#7a8fb0'}}>יעד: {fmtD(r.due_date)}</div>}</div>
       <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,background:st.bg,color:st.col}}>{r.status}</span>
       {r.status==='Uploaded'&&<div style={{display:'flex',gap:4}}><Btn sz="sm" v="accent" onClick={()=>db.updReq(r.id,{status:'Approved'})}>אשר</Btn><Btn sz="sm" v="danger" onClick={()=>db.updReq(r.id,{status:'Rejected'})}>דחה</Btn></div>}
-      <button onClick={()=>db.delReq(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
+      <button onClick={()=>db.delReq(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#4a5a78',fontSize:14}} onMouseOver={e=>e.target.style.color='#f08080'} onMouseOut={e=>e.target.style.color='#4a5a78'}>🗑</button>
     </div>;})}
   </div>;
 }
@@ -2463,21 +2467,21 @@ function ReqsTab({reqs,pid,db}){
 // ─── Approvals ───────────────────────────────────────────────────────────────
 function ApprovalsTab({approvs,pid,db}){
   const [sf,setSF]=useState(false);const [form,setF]=useState({title:'',description:''});
-  const ST={Pending:{bg:'#FFFBEB',col:'#B45309',lbl:'ממתין'},Approved:{bg:'#ECFDF5',col:'#065F46',lbl:'אושר'},'Changes Requested':{bg:'#FFF7ED',col:'#C2410C',lbl:'שינויים'}};
+  const ST={Pending:{bg:'rgba(184,130,42,0.2)',col:'#f0c060',lbl:'ממתין'},Approved:{bg:'rgba(61,143,95,0.2)',col:'#7dd4a8',lbl:'אושר'},'Changes Requested':{bg:'rgba(184,100,40,0.2)',col:'#f0a060',lbl:'שינויים'}};
   const add=()=>{if(!form.title.trim())return;db.addApp({project_id:pid,...form,status:'Pending'});setF({title:'',description:''});setSF(false);};
   return<div>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><p style={{fontSize:13,color:'#8C8C8C'}}>שלח פריטים לאישור הלקוח</p><Btn v="outline" sz="sm" sx={{borderStyle:'dashed'}} onClick={()=>setSF(true)}>+ פריט</Btn></div>
-    {sf&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><p style={{fontSize:13,color:'#7a8fb0'}}>שלח פריטים לאישור הלקוח</p><Btn v="outline" sz="sm" sx={{borderStyle:'dashed'}} onClick={()=>setSF(true)}>+ פריט</Btn></div>
+    {sf&&<div style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:10}}>
       <I label="כותרת" value={form.title} onChange={e=>setF(f=>({...f,title:e.target.value}))} placeholder="תוכנית קומה v2"/>
       <TA label="תיאור" value={form.description} onChange={e=>setF(f=>({...f,description:e.target.value}))} rows={2}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn v="ghost" sz="sm" onClick={()=>setSF(false)}>ביטול</Btn><Btn sz="sm" onClick={add}>צור</Btn></div>
     </div>}
-    {approvs.length===0&&<div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:40,textAlign:'center',color:'#8C8C8C'}}><div style={{fontSize:28,marginBottom:6}}>✅</div><div>אין פריטים</div></div>}
-    {approvs.map(a=>{const st=ST[a.status]||ST.Pending;return<div key={a.id} style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:'12px 14px',marginBottom:7}}>
-      <div style={{display:'flex',alignItems:'center',gap:10}}><div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{a.title}</div>{a.description&&<div style={{fontSize:12,color:'#8C8C8C'}}>{a.description}</div>}</div>
+    {approvs.length===0&&<div style={{background:'rgba(26,32,48,0.5)',border:'1px solid rgba(160,180,220,0.1)',borderRadius:10,padding:40,textAlign:'center',color:'#4a5a78'}}><div style={{fontSize:28,marginBottom:6}}>✅</div><div>אין פריטים</div></div>}
+    {approvs.map(a=>{const st=ST[a.status]||ST.Pending;return<div key={a.id} style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:'12px 14px',marginBottom:7}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}><div style={{flex:1}}><div style={{fontSize:13,fontWeight:500,color:'#d4dbe8'}}>{a.title}</div>{a.description&&<div style={{fontSize:12,color:'#7a8fb0'}}>{a.description}</div>}</div>
       <span style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,background:st.bg,color:st.col,flexShrink:0}}>{st.lbl}</span>
-      <button onClick={()=>db.delApp(a.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:14}} onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button></div>
-      {a.client_comment&&<div style={{marginTop:7,padding:'7px 10px',background:'#FFF7ED',borderRadius:7,fontSize:12,color:'#C2410C'}}><strong>משוב: </strong>{a.client_comment}</div>}
+      <button onClick={()=>db.delApp(a.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#4a5a78',fontSize:14}} onMouseOver={e=>e.target.style.color='#f08080'} onMouseOut={e=>e.target.style.color='#4a5a78'}>🗑</button></div>
+      {a.client_comment&&<div style={{marginTop:7,padding:'7px 10px',background:'rgba(184,100,40,0.15)',border:'1px solid rgba(184,100,40,0.3)',borderRadius:7,fontSize:12,color:'#f0a060'}}><strong>משוב: </strong>{a.client_comment}</div>}
     </div>;})}
   </div>;
 }
@@ -2529,8 +2533,8 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}><I label="שם" value={form.name} onChange={e=>u('name',e.target.value)}/><SE label="סטטוס" value={form.status} onChange={e=>u('status',e.target.value)}>{Object.entries(STATUS_MAP).map(([k,v])=><option key={k} value={k}>{v.heb}</option>)}</SE></div>
     <I label="כתובת" value={form.address} onChange={e=>u('address',e.target.value)}/>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-      <label><span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:5}}>ועדת תכנון</span>
-        <select value={form.planning_committee_id} onChange={e=>u('planning_committee_id',e.target.value)} style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,background:'white',fontFamily:'Heebo,sans-serif'}}>
+      <label><span className="glass-lbl">ועדת תכנון</span>
+        <select value={form.planning_committee_id} onChange={e=>u('planning_committee_id',e.target.value)} className="glass-input" style={{width:'100%',height:38,padding:'0 10px',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif'}}>
           <option value="">— בחר —</option>
           {Object.entries(byType).map(([tp,list])=><optgroup key={tp} label={"ועדה "+tp}>{list.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>)}
           {db.committees.length===0&&<option disabled>הוסף ועדות בדף "ועדות"</option>}
@@ -2585,7 +2589,7 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
         <I label="תקציב ₪" type="number" value={form.budget} onChange={e=>u('budget',e.target.value)}/>
         <I label="התחלה" type="date" value={form.start_date} onChange={e=>u('start_date',e.target.value)}/>
         <I label="יעד סיום" type="date" value={form.target_completion} onChange={e=>u('target_completion',e.target.value)}/>
-        <label><span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:5}}>מנהל פרויקט</span><select value={form.manager_id} onChange={e=>u('manager_id',e.target.value)} style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,background:'white',fontFamily:'Heebo,sans-serif'}}><option value="">— ללא —</option>{db.partners.map(p=><option key={p.id} value={p.id}>{p.id===currentUser?.id?p.name+' (אני)':p.name}</option>)}</select></label>
+        <label><span className="glass-lbl">מנהל פרויקט</span><select value={form.manager_id} onChange={e=>u('manager_id',e.target.value)} className="glass-input" style={{width:'100%',height:38,padding:'0 10px',borderRadius:7,fontSize:13,fontFamily:'Heebo,sans-serif'}}><option value="">— ללא —</option>{db.partners.map(p=><option key={p.id} value={p.id}>{p.id===currentUser?.id?p.name+' (אני)':p.name}</option>)}</select></label>
       </div>
     </div>
     <TA label="הערות פנימיות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={3}/>
@@ -2631,17 +2635,17 @@ function LogTab({project}){
     <div style={{fontSize:13}}>אין פעולות מתועדות עדיין</div>
   </div>;
   return<div>
-    <div style={{fontSize:12,color:'#8C8C8C',marginBottom:12}}>{log.length} פעולות מתועדות</div>
+    <div style={{fontSize:12,color:'#7a8fb0',marginBottom:12}}>{log.length} פעולות מתועדות</div>
     {log.map(e=>{
       const cfg=ACTION_CFG[e.action]||{e:'•',label:()=>e.action};
       const dt=new Date(e.ts);
       const dateStr=dt.toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});
       const timeStr=dt.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
-      return<div key={e.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 14px',background:'white',border:'1px solid #F0EDE8',borderRadius:8,marginBottom:6}}>
+      return<div key={e.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 14px',background:'rgba(26,32,48,0.55)',border:'1px solid rgba(160,180,220,0.1)',borderRadius:8,marginBottom:6}}>
         <span style={{fontSize:16,flexShrink:0,marginTop:1}}>{cfg.e}</span>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:500}}>{cfg.label(e)}</div>
-          <div style={{fontSize:11,color:'#8C8C8C',marginTop:2,display:'flex',gap:8}}>
+          <div style={{fontSize:13,fontWeight:500,color:'#d4dbe8'}}>{cfg.label(e)}</div>
+          <div style={{fontSize:11,color:'#7a8fb0',marginTop:2,display:'flex',gap:8}}>
             <span>👤 {e.user}</span>
             <span>📅 {dateStr}</span>
             <span>🕐 {timeStr}</span>
@@ -2814,7 +2818,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
   const STATS=[{l:'פרויקטים פעילים',v:active,bg:'#E8EDE9',col:'#4a7c5e',e:'📁'},{l:'סה״כ משימות',v:db.tasks.length,bg:'#FFFBEB',col:'#B45309',e:'☑️'},{l:'הושלמו',v:done,bg:'#E8EDE9',col:'#4a7c5e',e:'✅'},{l:'באיחור',v:overdue,bg:'#FEF2F2',col:'#DC2626',e:'⚠️'}];
   const activeF=[fSt!=='All',fC!=='All',fU!=='All',fP!=='All'].filter(Boolean).length;
 
-  const FS=({val,onChange,children})=><select value={val} onChange={onChange} style={{height:34,padding:'0 8px',border:'1px solid '+(val!=='All'?'#4a7c5e':'#E8E6E1'),borderRadius:7,fontSize:12,background:val!=='All'?'#E8EDE9':'white',fontFamily:'Heebo,sans-serif',color:val!=='All'?'#065F46':'#6B7280',fontWeight:val!=='All'?600:400}}>{children}</select>;
+  const FS=({val,onChange,children})=><select value={val} onChange={onChange} style={{height:34,padding:'0 8px',border:'1px solid '+(val!=='All'?'rgba(61,143,95,0.5)':'rgba(160,180,220,0.15)'),borderRadius:7,fontSize:12,background:val!=='All'?'rgba(61,143,95,0.15)':'rgba(26,32,48,0.6)',fontFamily:'Heebo,sans-serif',color:val!=='All'?'#7dd4a8':'#b0bdd4',fontWeight:val!=='All'?600:400}}>{children}</select>;
 
   return<div>
     <div style={{marginBottom:20}}><h1 style={{fontSize:28,fontWeight:700,marginBottom:3,fontFamily:"'DM Sans',sans-serif",letterSpacing:'-.02em',color:'#eef1f7'}}>לוח בקרה</h1><p style={{color:'var(--text2)',fontSize:14}}>ניהול פרויקטים — משרד אדריכלות</p></div>
@@ -2826,8 +2830,8 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
       </div>)}
     </div>
 
-    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:10,padding:'10px 14px',marginBottom:16,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
-      <input value={search} onChange={e=>setS(e.target.value)} placeholder="🔍 חיפוש..." style={{height:34,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,background:'#FAFAF8',width:155,fontFamily:'Heebo,sans-serif'}}/>
+    <div style={{background:'rgba(26,32,48,0.6)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:10,padding:'10px 14px',marginBottom:16,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+      <input value={search} onChange={e=>setS(e.target.value)} placeholder="🔍 חיפוש..." style={{height:34,padding:'0 10px',border:'1px solid rgba(160,180,220,0.15)',borderRadius:7,fontSize:13,background:'rgba(15,19,24,0.4)',color:'#d4dbe8',width:155,fontFamily:'Heebo,sans-serif'}}/>
       <FS val={fSt} onChange={e=>setFSt(e.target.value)}>
         <option value="All">כל הסטטוסים</option>
         {['Planning','Permitting','Under Construction','Completed','On Hold'].map(s=><option key={s}>{s}</option>)}
@@ -2855,19 +2859,19 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
       {filtered.map(p=>{
         const ms=p.milestones||[],done=ms.filter(m=>m.completed).length,prog=ms.length?Math.round(done/ms.length*100):0;
         const hp=db.tasks.filter(t=>t.project_id===p.id&&t.priority==='High'&&t.status!=='Done').length;
-        return<div key={p.id} onClick={()=>onOpen(p.id)} className="hc" style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',cursor:'pointer',overflow:'hidden',transition:'all .2s'}}>
-          <div style={{height:88,background:'linear-gradient(135deg,#F5F5F3,#E8E6E1)',position:'relative',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{opacity:.07,fontSize:10,lineHeight:2.2}}>—————— ——————</div>
+        return<div key={p.id} onClick={()=>onOpen(p.id)} className="hc" style={{background:'rgba(26,32,48,0.75)',backdropFilter:'blur(12px) saturate(1.4)',WebkitBackdropFilter:'blur(12px) saturate(1.4)',borderRadius:12,border:'1px solid rgba(160,180,220,0.12)',cursor:'pointer',overflow:'hidden',transition:'all .2s',boxShadow:'0 4px 24px rgba(0,0,0,.3)'}}>
+          <div style={{height:88,background:'linear-gradient(135deg,rgba(46,58,82,0.8),rgba(35,43,62,0.95))',position:'relative',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{opacity:.12,fontSize:10,lineHeight:2.2,color:'#7a8fb0'}}>—————— ——————</div>
             <div style={{position:'absolute',top:8,right:8}}><SBadge status={p.status}/></div>
-            {hp>0&&<div style={{position:'absolute',top:8,left:8,background:'#EF4444',color:'white',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:999}}>⚡ {hp}</div>}
+            {hp>0&&<div style={{position:'absolute',top:8,left:8,background:'rgba(143,61,61,0.85)',color:'#ffc0c0',fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:999,border:'1px solid rgba(143,61,61,0.5)'}}>⚡ {hp}</div>}
           </div>
           <div style={{padding:12}}>
-            <div style={{fontSize:14,fontWeight:600,marginBottom:3}}>{p.name}</div>
-            {p.address&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>📍 {p.address}</div>}
-            {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
-            {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
-            {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
-            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'white',border:'1px solid #D0CEC9',borderRadius:6,fontSize:11,fontWeight:600,color:'#3D7A5A',cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s'}} onMouseOver={e=>e.currentTarget.style.borderColor='#4a7c5e'} onMouseOut={e=>e.currentTarget.style.borderColor='#D0CEC9'}>👁 פורטל לקוח</button></div>}
+            <div style={{fontSize:14,fontWeight:600,marginBottom:3,color:'#eef1f7'}}>{p.name}</div>
+            {p.address&&<div style={{fontSize:12,color:'#7a8fb0',marginBottom:2}}>📍 {p.address}</div>}
+            {p.client_name&&<div style={{fontSize:12,color:'#7a8fb0',marginBottom:2}}>👤 {p.client_name}</div>}
+            {p.planning_committee&&<div style={{fontSize:11,color:'#7dd4a8',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
+            {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#b0bdd4',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
+            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#7a8fb0'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600,color:'#d4dbe8'}}>{prog}%</span></div><div style={{height:3,background:'rgba(160,180,220,0.1)',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#3d8f5f',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'rgba(61,143,95,0.12)',border:'1px solid rgba(61,143,95,0.3)',borderRadius:6,fontSize:11,fontWeight:600,color:'#7dd4a8',cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s'}} onMouseOver={e=>{e.currentTarget.style.background='rgba(61,143,95,0.22)';e.currentTarget.style.borderColor='rgba(61,143,95,0.55)'}} onMouseOut={e=>{e.currentTarget.style.background='rgba(61,143,95,0.12)';e.currentTarget.style.borderColor='rgba(61,143,95,0.3)'}}>👁 פורטל לקוח</button></div>}
           </div>
         </div>;
       })}
@@ -2887,26 +2891,26 @@ function AllTasksPage({db,nav}){
     <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
     <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
     <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
-      {[{id:'all',name:'הכל'},...db.projects].map(p=><button key={p.id} onClick={()=>setFP(p.id)} style={{height:32,padding:'0 10px',borderRadius:7,fontSize:12,fontWeight:500,border:fp===p.id?'none':'1px solid #E8E6E1',background:fp===p.id?'#1A1A1A':'white',color:fp===p.id?'white':'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>{p.name}</button>)}
+      {[{id:'all',name:'הכל'},...db.projects].map(p=><button key={p.id} onClick={()=>setFP(p.id)} style={{height:32,padding:'0 10px',borderRadius:7,fontSize:12,fontWeight:500,border:fp===p.id?'1px solid rgba(201,152,58,0.4)':'1px solid rgba(160,180,220,0.15)',background:fp===p.id?'linear-gradient(135deg,rgba(201,152,58,0.22),rgba(201,152,58,0.1))':'rgba(26,32,48,0.5)',color:fp===p.id?'#e0b255':'#7a8fb0',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>{p.name}</button>)}
     </div>
-    <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,overflow:'hidden'}}>
-      {tasks.length===0&&<div style={{padding:48,textAlign:'center',color:'#8C8C8C'}}>אין משימות</div>}
+    <div style={{background:'rgba(26,32,48,0.75)',backdropFilter:'blur(12px) saturate(1.4)',WebkitBackdropFilter:'blur(12px) saturate(1.4)',border:'1px solid rgba(160,180,220,0.12)',borderRadius:12,overflow:'hidden'}}>
+      {tasks.length===0&&<div style={{padding:48,textAlign:'center',color:'#7a8fb0'}}>אין משימות</div>}
       {tasks.map((t,i)=>{
         const proj=db.projects.find(p=>p.id===t.project_id),asgn=db.partners.find(p=>p.id===t.assignee_id);
         const od=t.deadline&&new Date(t.deadline)<new Date()&&t.status!=='Done';
-        const SC={'Done':{bg:'#ECFDF5',col:'#065F46'},'In Progress':{bg:'#FFFBEB',col:'#B45309'},'To Do':{bg:'#F3F4F6',col:'#6B7280'}};
-        const sc=SC[t.status];
+        const SC={'Done':{bg:'rgba(61,143,95,0.2)',col:'#7dd4a8'},'In Progress':{bg:'rgba(184,130,42,0.2)',col:'#f0c060'},'To Do':{bg:'rgba(74,90,120,0.2)',col:'#7a8fb0'}};
+        const sc=SC[t.status]||SC['To Do'];
         const bl=(t.depends_on||[]).some(id=>{const d=db.tasks.find(x=>x.id===id);return d&&d.status!=='Done';});
-        return<div key={t.id} onClick={()=>setOID(t.id)} className="hr" style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderTop:i>0?'1px solid #F5F5F3':'none',cursor:'pointer'}}>
-          <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid '+(t.status==='Done'?'#4a7c5e':t.status==='In Progress'?'#F59E0B':'#D0CEC9'),background:t.status==='Done'?'#4a7c5e':'white',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        return<div key={t.id} onClick={()=>setOID(t.id)} className="hr" style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderTop:i>0?'1px solid rgba(160,180,220,0.08)':'none',cursor:'pointer'}}>
+          <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid '+(t.status==='Done'?'#3d8f5f':t.status==='In Progress'?'#b8822a':'rgba(160,180,220,0.3)'),background:t.status==='Done'?'#3d8f5f':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
             {t.status==='Done'&&<span style={{color:'white',fontSize:9,fontWeight:700}}>✓</span>}
           </div>
-          <span style={{flex:1,fontSize:13,color:t.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:t.status==='Done'?'line-through':''}}>{t.title}</span>
-          {proj&&<span style={{fontSize:11,color:'#8C8C8C',flexShrink:0}}>{proj.name}</span>}
+          <span style={{flex:1,fontSize:13,color:t.status==='Done'?'#4a5a78':'#d4dbe8',textDecoration:t.status==='Done'?'line-through':''}}>{t.title}</span>
+          {proj&&<span style={{fontSize:11,color:'#7a8fb0',flexShrink:0}}>{proj.name}</span>}
           {asgn&&<Av u={asgn} size={22}/>}
           <span style={{color:PRI[t.priority||'Medium'],fontSize:12,flexShrink:0}}>●</span>
-          {t.deadline&&<span style={{fontSize:11,color:od?'#EF4444':'#8C8C8C',flexShrink:0,fontWeight:od?600:400}}>{fmtD(t.deadline)}</span>}
-          {bl&&<span style={{fontSize:11,color:'#EF4444',fontWeight:600,flexShrink:0}}>⛔</span>}
+          {t.deadline&&<span style={{fontSize:11,color:od?'#f08080':'#7a8fb0',flexShrink:0,fontWeight:od?600:400}}>{fmtD(t.deadline)}</span>}
+          {bl&&<span style={{fontSize:11,color:'#f08080',fontWeight:600,flexShrink:0}}>⛔</span>}
           <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:999,background:sc.bg,color:sc.col,flexShrink:0}}>{t.status==='Done'?'הושלם':t.status==='In Progress'?'בתהליך':'להתחלה'}</span>
         </div>;
       })}

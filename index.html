@@ -11,21 +11,41 @@
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Heebo',sans-serif;background:#0f1318;color:#1A1A1A;direction:rtl}
+  body{font-family:var(--font-body);background:#0f1318;color:#1A1A1A;direction:rtl}
   :root{
+    /* Brand colors — Steel */
     --color-steel-900:#0f1318;--color-steel-800:#1a2030;--color-steel-700:#232b3e;
     --color-steel-600:#2e3a52;--color-steel-500:#4a5a78;--color-steel-400:#7a8fb0;
     --color-steel-300:#b0bdd4;--color-steel-200:#d4dbe8;--color-steel-100:#eef1f7;
+    /* Brand colors — Gold */
     --color-gold-600:#7a5c1e;--color-gold-500:#a67c2e;--color-gold-400:#c9983a;
     --color-gold-300:#e0b255;--color-gold-200:#f0cc7a;--color-gold-100:#fde8a8;
+    /* Semantic */
     --color-success:#3d8f5f;--color-warning:#b8822a;--color-error:#8f3d3d;--color-info:#3d668f;
+    /* Legacy aliases */
     --green:#3d8f5f;--gold:#c9983a;--red:#DC2626;--red-light:#FEF2F2;
     --border:rgba(160,180,220,0.15);--text2:#7a8fb0;
+    /* Typography */
+    --font-body:'Heebo',sans-serif;
+    --text-xs:  clamp(0.65rem,  0.6rem  + 0.25vw, 0.75rem);
+    --text-sm:  clamp(0.78rem,  0.72rem + 0.3vw,  0.875rem);
+    --text-base:clamp(0.9rem,   0.85rem + 0.35vw, 1rem);
+    --text-md:  clamp(1rem,     0.95rem + 0.4vw,  1.125rem);
+    --text-lg:  clamp(1.1rem,   1rem    + 0.5vw,  1.25rem);
+    --text-xl:  clamp(1.2rem,   1.1rem  + 0.65vw, 1.5rem);
+    --text-2xl: clamp(1.4rem,   1.25rem + 0.85vw, 1.875rem);
+    --text-3xl: clamp(1.65rem,  1.4rem  + 1.1vw,  2.25rem);
+    --leading-tight:1.2;--leading-normal:1.5;--leading-loose:1.75;
+    --tracking-tight:-0.02em;--tracking-normal:0;--tracking-wide:0.04em;--tracking-wider:0.08em;
+    /* Transitions */
+    --transition-fast:0.12s ease;--transition-normal:0.2s ease;--transition-slow:0.35s cubic-bezier(0.4,0,0.2,1);
   }
   .hr:hover{background:rgba(160,180,220,0.06)!important}
-  .card{background:rgba(26,32,48,0.75);backdrop-filter:blur(12px) saturate(1.4);-webkit-backdrop-filter:blur(12px) saturate(1.4);border:1px solid rgba(160,180,220,0.12)!important;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.3),0 1px 0 rgba(255,255,255,.04) inset;color:#d4dbe8}
+  .card{background:rgba(26,32,48,0.75);backdrop-filter:blur(12px) saturate(1.4);-webkit-backdrop-filter:blur(12px) saturate(1.4);border:1px solid rgba(160,180,220,0.12)!important;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.3),0 1px 0 rgba(255,255,255,.04) inset;color:#d4dbe8;transition:box-shadow var(--transition-normal),transform var(--transition-normal)}
+  .card:hover{box-shadow:0 8px 32px rgba(0,0,0,.4),0 1px 0 rgba(255,255,255,.06) inset;transform:translateY(-1px)}
   .glass-elevated{background:rgba(35,43,62,0.88);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(160,180,220,0.18);border-radius:16px;box-shadow:0 8px 48px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.06) inset}
   .fade{animation:fadeIn .18s ease}
+  .animate-appear{animation:fadeSlideUp 0.2s ease forwards}
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(201,152,58,.4)}60%{box-shadow:0 0 0 6px rgba(201,152,58,0)}}
@@ -1333,7 +1353,7 @@ function SBadge({status}){
 function Modal({open,onClose,title,children,wide,xl}){
   if(!open)return null;
   return<div onClick={onClose} style={{position:'fixed',inset:0,zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.6)',backdropFilter:'blur(4px)'}}>
-    <div onClick={e=>e.stopPropagation()} className="fade" style={{background:'rgba(35,43,62,0.92)',backdropFilter:'blur(20px) saturate(1.6)',WebkitBackdropFilter:'blur(20px) saturate(1.6)',border:'1px solid rgba(160,180,220,0.18)',borderRadius:16,boxShadow:'0 8px 48px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.06) inset',width:'100%',maxWidth:xl?900:wide?640:500,maxHeight:'92vh',display:'flex',flexDirection:'column',color:'#d4dbe8'}}>
+    <div onClick={e=>e.stopPropagation()} className="animate-appear" style={{background:'rgba(35,43,62,0.92)',backdropFilter:'blur(20px) saturate(1.6)',WebkitBackdropFilter:'blur(20px) saturate(1.6)',border:'1px solid rgba(160,180,220,0.18)',borderRadius:16,boxShadow:'0 8px 48px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.06) inset',width:'100%',maxWidth:xl?900:wide?640:500,maxHeight:'92vh',display:'flex',flexDirection:'column',color:'#d4dbe8'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 22px',borderBottom:'1px solid rgba(160,180,220,0.12)',flexShrink:0}}>
         <h2 style={{fontSize:16,fontWeight:600,color:'#eef1f7'}}>{title}</h2>
         <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#7a8fb0',lineHeight:1,padding:4}}>×</button>
@@ -1534,7 +1554,9 @@ function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpTo
         ))}
         <div style={{marginTop:14}}>
           <div style={{fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',marginBottom:8}}>קבצים</div>
-          <div style={{border:'2px dashed #E8E6E1',borderRadius:8,padding:10,textAlign:'center',cursor:'pointer',fontSize:12,color:'#B0B0B0'}}
+          <div style={{border:'2px dashed rgba(201,152,58,0.45)',borderRadius:8,padding:12,textAlign:'center',cursor:'pointer',fontSize:12,color:'var(--color-gold-300)',background:'rgba(201,152,58,0.06)',transition:'all var(--transition-normal)'}}
+            onMouseOver={e=>{e.currentTarget.style.borderColor='rgba(201,152,58,0.75)';e.currentTarget.style.background='rgba(201,152,58,0.1)';}}
+            onMouseOut={e=>{e.currentTarget.style.borderColor='rgba(201,152,58,0.45)';e.currentTarget.style.background='rgba(201,152,58,0.06)';}}
             onClick={()=>alert('העלאת קבצים תהיה זמינה עם חיבור לשרת')}>📎 לחץ להעלאה</div>
         </div>
       </div>
@@ -1762,13 +1784,13 @@ function FlowView({tasks,allTasks,allProjects,partners,db,onOpenTask}){
           const c=nodeColor(t);
           const asgn=partners.find(p=>p.id===t.assignee_id);
           const isHov=hoverId===t.id;
-          return<g key={t.id} style={{cursor:'pointer'}}
+          return<g key={t.id} style={{cursor:'pointer',transition:'all 0.12s'}}
             onMouseEnter={()=>setHoverId(t.id)}
             onMouseLeave={()=>setHoverId(null)}
             onClick={()=>setOpenId(t.id)}>
             <rect x={t.x} y={t.y} width={NW} height={NH} rx={9}
-              fill={c.bg} stroke={isHov?'#3D7A5A':c.border} strokeWidth={isHov?2:1.5}
-              style={{filter:isHov?'drop-shadow(0 4px 8px rgba(0,0,0,.12))':'none',transition:'all .15s'}}/>
+              fill={c.bg} stroke={isHov?'var(--color-gold-400)':c.border} strokeWidth={isHov?2:1.5}
+              style={{filter:isHov?'drop-shadow(0 4px 12px rgba(201,152,58,.25))':'none',transition:'all .15s'}}/>
             {/* Priority dot */}
             <circle cx={t.x+12} cy={t.y+14} r={4} fill={PRI[t.priority||'Medium']}/>
             {/* Title */}
@@ -2172,44 +2194,44 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
 // ── Mini SVG Bar Chart ────────────────────────────────────────────────────────
 function CashflowChart({ms,height=160}){
-  // Build monthly buckets from expected/actual dates
-  // Use actual completion date if done, otherwise expected_date for forecast
-  const events=ms
-    .filter(m=>(m.payment_amount>0)&&((m.completed&&m.date)||(m.expected_date&&m.expected_date!=='')))
-    .map(m=>({
-      label:m.name,
-      amount:m.payment_amount||0,
-      date:(m.completed&&m.date) ? m.date : m.expected_date,
-      isFuture:!m.completed,
-      paid:m.payment_status==='Paid',
-    }));
+  const chartData=useMemo(()=>{
+    // Build monthly buckets from expected/actual dates
+    // Use actual completion date if done, otherwise expected_date for forecast
+    const events=ms
+      .filter(m=>(m.payment_amount>0)&&((m.completed&&m.date)||(m.expected_date&&m.expected_date!=='')))
+      .map(m=>({
+        label:m.name,
+        amount:m.payment_amount||0,
+        date:(m.completed&&m.date)?m.date:m.expected_date,
+        isFuture:!m.completed,
+        paid:m.payment_status==='Paid',
+      }));
+    if(events.length===0)return null;
+    const byMonth={};
+    events.forEach(e=>{
+      const d=new Date(e.date);
+      const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if(!byMonth[key])byMonth[key]={key,expected:0,paid:0,labels:[],allFuture:true};
+      byMonth[key].expected+=e.amount;
+      if(e.paid)byMonth[key].paid+=e.amount;
+      if(!e.isFuture)byMonth[key].allFuture=false;
+      byMonth[key].labels.push(e.label);
+    });
+    const months=Object.values(byMonth).sort((a,b)=>a.key.localeCompare(b.key));
+    if(months.length===0)return null;
+    let cumExp=0,cumPaid=0;
+    const withCum=months.map(m=>{cumExp+=m.expected;cumPaid+=m.paid;return{...m,cumExp,cumPaid};});
+    const maxVal=Math.max(...withCum.map(m=>m.cumExp),1);
+    return{withCum,maxVal,months};
+  },[ms]);
 
-  if(events.length===0)return(
-    <div style={{background:'#F9F8F6',border:'1px dashed #E0DDD8',borderRadius:10,padding:'24px',textAlign:'center',color:'#B0B0B0',fontSize:12}}>
+  if(!chartData)return(
+    <div style={{background:'rgba(26,32,48,0.5)',border:'1px dashed rgba(160,180,220,0.2)',borderRadius:10,padding:'24px',textAlign:'center',color:'var(--color-steel-400)',fontSize:12}}>
       הוסף צפי תאריך לאבני דרך כדי לראות את תזרים ההכנסות
     </div>
   );
 
-  // Group by month
-  const byMonth={};
-  events.forEach(e=>{
-    const d=new Date(e.date);
-    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if(!byMonth[key])byMonth[key]={key,expected:0,paid:0,labels:[],allFuture:true};
-    byMonth[key].expected+=e.amount;
-    if(e.paid)byMonth[key].paid+=e.amount;
-    if(!e.isFuture)byMonth[key].allFuture=false;
-    byMonth[key].labels.push(e.label);
-  });
-
-  const months=Object.values(byMonth).sort((a,b)=>a.key.localeCompare(b.key));
-  if(months.length===0)return null;
-
-  // Cumulative lines
-  let cumExp=0,cumPaid=0;
-  const withCum=months.map(m=>{cumExp+=m.expected;cumPaid+=m.paid;return{...m,cumExp,cumPaid};});
-
-  const maxVal=Math.max(...withCum.map(m=>m.cumExp),1);
+  const{withCum,maxVal,months}=chartData;
   const W=Math.max(months.length*80,320);
   const H=height;
   const PAD={t:16,r:16,b:40,l:64};
@@ -2232,7 +2254,7 @@ function CashflowChart({ms,height=160}){
           const y=yOf(t);
           return<g key={t}>
             <line x1={PAD.l} y1={y} x2={W-PAD.r} y2={y} stroke="#F0EDE8" strokeWidth={1}/>
-            <text x={PAD.l-6} y={y+4} textAnchor="end" fontSize={9} fill="#B0B0B0" fontFamily="Heebo,sans-serif">
+            <text x={PAD.l-6} y={y+4} textAnchor="end" fontSize={9} fill="#4a5a78" fontFamily="Heebo,sans-serif">
               {t>=1000?'₪'+(t/1000).toFixed(0)+'K':'₪'+t}
             </text>
           </g>;
@@ -2472,7 +2494,7 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
     const clients=form.clients||[];
     for(const cl of clients){
       if(cl.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cl.email)){alert('אימייל לא תקין: '+cl.email);return;}
-      if(cl.phone&&!/^[0-9+\-\s()]{7,15}$/.test(cl.phone.trim())){alert('טלפון לא תקין: '+cl.phone);return;}
+      if(cl.phone&&!/^\+?[0-9]{1,3}?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/.test(cl.phone.trim())){alert('טלפון לא תקין: '+cl.phone);return;}
       if(cl.id_number&&!/^[0-9]{9}$/.test(cl.id_number.replace(/-/g,''))){alert('תעודת זהות לא תקינה (חייבת להיות 9 ספרות): '+cl.id_number);return;}
     }
     const comm=db.committees.find(x=>x.id===form.planning_committee_id);

@@ -8,7 +8,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <!-- Google GSI not needed — using Supabase Auth -->
-<style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:var(--font-body);background:#0f1318;color:#1A1A1A;direction:rtl}
@@ -412,7 +411,7 @@ async function sbUploadFile(officeId, projectId, file) {
   formData.append('', file);
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/project-docs/${path}`, {
     method: 'POST',
-    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON },
+    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + (_sbSession?.access_token || SUPABASE_ANON) },
     body: formData
   });
   if (!res.ok) { const e = await res.text(); throw new Error('Upload failed: ' + e); }
@@ -717,7 +716,9 @@ function MeetingScheduler({project,onClose}){
   const [sendError,setSendError]=useState('');
   const [bookingLink,setBookingLink]=useState('');
   const [copied,setCopied]=useState(false);
-  const copy=()=>{navigator.clipboard.writeText(bookingLink).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);}).catch(()=>{});};
+  const copyTimer=useRef(null);
+  const copy=()=>{if(copied)return;navigator.clipboard.writeText(bookingLink).then(()=>{setCopied(true);if(copyTimer.current)clearTimeout(copyTimer.current);copyTimer.current=setTimeout(()=>setCopied(false),2000);}).catch(()=>{});};
+  useEffect(()=>()=>{if(copyTimer.current)clearTimeout(copyTimer.current);},[]);
 
   const WORK_HOURS=[8,9,10,11,12,13,14,15,16,17];
 
@@ -1366,7 +1367,9 @@ function Modal({open,onClose,title,children,wide,xl}){
 // ─── Task Modal (all inline) ──────────────────────────────────────────────────
 function TaskModal({task,allTasks,allProjects,partners,onUpdate,onClose,onJumpToTask,db}){
   const [saved,setSaved]=useState(false);
-  const showSaved=()=>{setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const savedTimer=useRef(null);
+  const showSaved=()=>{setSaved(true);if(savedTimer.current)clearTimeout(savedTimer.current);savedTimer.current=setTimeout(()=>setSaved(false),2000);};
+  useEffect(()=>()=>{if(savedTimer.current)clearTimeout(savedTimer.current);},[]);
   const [noteText,setNoteText]=useState('');
   const [depSearch,setDepSearch]=useState('');
   const [newSubTitle,setNewSubTitle]=useState('');
@@ -2844,7 +2847,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
         <option value="Low">Low</option>
       </FS>
       {activeF>0&&<button onClick={()=>{setFSt('All');setFC('All');setFU('All');setFP('All');setS('');}} style={{height:34,padding:'0 10px',borderRadius:7,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',fontSize:12,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>× נקה ({activeF})</button>}
-      <div style={{flex:1}}/><button onClick={onNew} className="inline-flex items-center gap-2 h-10 px-5 bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white font-sans font-medium text-base tracking-tight rounded-lg border border-accent-500 transition-all duration-[180ms] cursor-pointer select-none">+ פרויקט חדש</button>
+      <div style={{flex:1}}/><Btn onClick={onNew}>+ פרויקט חדש</Btn>
     </div>
     <div style={{fontSize:12,color:'#8C8C8C',marginBottom:10}}>{filtered.length} פרויקטים</div>
 
@@ -2864,7 +2867,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
             {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
             {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
             {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
-            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} className="w-full h-8 bg-white hover:bg-stone-50 border border-stone-300 hover:border-accent-400 text-accent-600 font-sans font-semibold text-xs tracking-wide rounded-md transition-all duration-[180ms] cursor-pointer">👁 פורטל לקוח</button></div>}
+            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'white',border:'1px solid #D0CEC9',borderRadius:6,fontSize:11,fontWeight:600,color:'#3D7A5A',cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s'}} onMouseOver={e=>e.currentTarget.style.borderColor='#4a7c5e'} onMouseOut={e=>e.currentTarget.style.borderColor='#D0CEC9'}>👁 פורטל לקוח</button></div>}
           </div>
         </div>;
       })}
@@ -3128,12 +3131,12 @@ function ClientPortal({project,db,onClose}){
               {pendingReqs>0&&<button onClick={()=>setTab('docs')} style={{background:'white',border:'2px solid #FCA5A5',borderRadius:12,padding:'14px 18px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',fontFamily:'Heebo,sans-serif',textAlign:'right',transition:'all .15s'}} onMouseOver={e=>e.currentTarget.style.background='#FFF5F5'} onMouseOut={e=>e.currentTarget.style.background='white'}>
                 <div style={{width:40,height:40,background:'#FEF2F2',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>📎</div>
                 <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:'#1A1A1A',marginBottom:2}}>העלה {pendingReqs} מסמכים</div><div style={{fontSize:12,color:'#9C9C9C'}}>המשרד מחכה למסמכים שלך</div></div>
-                <div style={{fontSize:11,color:'#EF4444',fontWeight:700}}>← לחץ להעלאה</div>
+                <div style={{fontSize:11,color:'#EF4444',fontWeight:700}}>↑ לחץ להעלאה</div>
               </button>}
               {pendingApp>0&&<button onClick={()=>setTab('approvals')} style={{background:'white',border:'2px solid #86EFAC',borderRadius:12,padding:'14px 18px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',fontFamily:'Heebo,sans-serif',textAlign:'right',transition:'all .15s'}} onMouseOver={e=>e.currentTarget.style.background='#F0FDF4'} onMouseOut={e=>e.currentTarget.style.background='white'}>
                 <div style={{width:40,height:40,background:'#ECFDF5',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>✅</div>
                 <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:'#1A1A1A',marginBottom:2}}>אשר {pendingApp} פריטים</div><div style={{fontSize:12,color:'#9C9C9C'}}>תוכניות וחומרים לבדיקתך</div></div>
-                <div style={{fontSize:11,color:'#3D7A5A',fontWeight:700}}>← לחץ לאישור</div>
+                <div style={{fontSize:11,color:'#3D7A5A',fontWeight:700}}>↑ לחץ לאישור</div>
               </button>}
             </div>
           </div>}
@@ -3390,7 +3393,7 @@ function CRMPage({db,nav,currentUser}){
 
     {/* Add/Edit Form */}
     {openId==='__new__'&&<div className="fade" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:18,boxShadow:'0 2px 12px rgba(0,0,0,.06)'}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>'איש קשר חדש'</div>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>איש קשר חדש</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
         <SE label="סוג" value={form.type} onChange={e=>u('type',e.target.value)}>
           {Object.entries(TYPE_CFG).map(([t,c])=><option key={t} value={t}>{c.e} {c.label.slice(0,-2)||c.label}</option>)}
@@ -3429,7 +3432,7 @@ function CRMPage({db,nav,currentUser}){
       <TA label="הערות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={2}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
         <Btn v="ghost" onClick={closeForm}>ביטול</Btn>
-        <Btn onClick={save} disabled={!form.name.trim()}>'הוסף'</Btn>
+        <Btn onClick={save} disabled={!form.name.trim()}>הוסף</Btn>
       </div>
     </div>}
 
@@ -3965,7 +3968,7 @@ function DriveLoginScreen({onLogin,initialErr=''}){
             : <>כניסה עם גוגל</>}
         </button>
         {err&&<p style={{color:'#DC3545',marginTop:14,fontSize:13}}>{err}</p>}
-        <p style={{color:'#4a5a78',fontSize:12,marginTop:24}}>הנתונים נשמרים בגוגל דרייב האישי שלך בלבד</p>
+        <p style={{color:'#4a5a78',fontSize:12,marginTop:24}}>הנתונים מאובטחים ב-Supabase</p>
       </div>
     </div>
   );

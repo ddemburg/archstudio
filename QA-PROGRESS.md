@@ -1,5 +1,5 @@
 # ArchStudio QA Progress Report
-**Sentry Batch 2 — Final Run**
+**Sentry Batch 3 — Run 2 (Critical+High Fixes)**
 **Date:** 2026-03-28
 **Branch:** sentry/2026-03-28
 
@@ -25,7 +25,7 @@
 | H3 | `PartnersPage` ~line 2934 | **`Av` called with wrong props** — `<Av name={p.name} size={44} color={p.color}/>` but `Av` expects `u` object prop | ✅ Fixed (Batch 2, Final) — changed to `<Av u={p} size={44}/>` |
 | H4 | `PartnersPage` ~line 2953 | **`nav('appsettings')` called as function** — `nav` is an object; should be `nav.toSettings()` | ✅ Fixed (Batch 2, Final) — changed to `nav.toSettings()` |
 | H5 | `autoBackup` ~line 1158 | **Google Drive auto-backup silently broken** — `_gAccessToken` never populated from auth flow | ⏳ Carry-over — requires OAuth flow re-design |
-| H6 | `sbUploadFile` ~line 376 | **File upload uses wrong auth token** — uses `SUPABASE_ANON` constant as Bearer token; should use session token | ⏳ Carry-over — requires Supabase bucket + RLS setup |
+| H6 | `sbUploadFile` ~line 376 | **File upload uses wrong auth token** — uses `SUPABASE_ANON` constant as Bearer token; should use session token | ✅ Fixed (Batch 3, Run 2) — now uses `_sbSession?.access_token \|\| SUPABASE_ANON` |
 
 ---
 
@@ -35,9 +35,9 @@
 |----|----------|-------------|--------|
 | M1 | `TasksTab` ~line 1861 | **`TaskRow` defined inside render function** — causes remount on every re-render | ✅ Fixed (Batch 1, Run 2) — extracted to top-level `function TaskRow` |
 | M2 | `TaskModal` | **`FR` sub-component inside `TaskModal` render** — same violation | ✅ Fixed (Batch 1, Run 2) — deleted dead component |
-| M3 | `<head>` | **Duplicate `<style>` blocks with conflicting CSS** | ⏳ Carry-over |
-| M4 | CRM form | **Literal single quotes in Hebrew UI strings** | ⏳ Carry-over |
-| M5 | Dashboard | **Unmapped Tailwind class names on buttons** | ⏳ Carry-over |
+| M3 | `<head>` | **Duplicate `<style>` blocks with conflicting CSS** | ✅ Fixed (Batch 3, Run 2) — removed redundant first style block (print template has its own inline CSS) |
+| M4 | CRM form | **Literal single quotes in Hebrew UI strings** | ✅ Fixed (Batch 3, Run 2) — removed wrapping `'` from form title and submit button |
+| M5 | Dashboard | **Unmapped Tailwind class names on buttons** | ✅ Fixed (Batch 3, Run 2) — replaced with Btn component / inline styles |
 | M6 | `TaskModal` | **File upload is a stub (alert placeholder)** | ⏳ Carry-over — blocked on backend |
 
 ---
@@ -53,7 +53,7 @@
 | U5 | Sidebar active state green instead of gold | ✅ Fixed (Batch 1, Run 3) |
 | U6 | No fluid typography | ✅ Fixed (Batch 1, Run 4) |
 | U7 | No transition animations | ✅ Fixed (Batch 1, Run 4) |
-| U8 | Login footer says "Google Drive" (should be Supabase) | ⏳ Carry-over — low risk, cosmetic |
+| U8 | Login footer says "Google Drive" (should be Supabase) | ✅ Fixed (Batch 3, Run 2) — now reads "הנתונים מאובטחים ב-Supabase" |
 
 ---
 
@@ -72,11 +72,12 @@
 | Severity | Total | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | 🔴 Critical | 2 | 2 | 0 |
-| 🟠 High | 6 | 4 | 2 |
-| 🟡 Medium | 6 | 2 | 4 |
-| 🔵 UI Gaps | 8 | 7 | 1 |
+| 🟠 High | 6 | 5 | 1 |
+| 🟡 Medium | 6 | 5 | 1 |
+| 🔵 UI Gaps | 8 | 8 | 0 |
 | ⬜ Feature Gaps | 3 | 1 | 2 |
-| **Total** | **25** | **16** | **9** |
+| **Misc (A9, A10, B8)** | 3 | 3 | 0 |
+| **Total** | **28** | **24** | **4** |
 
 ---
 
@@ -91,3 +92,5 @@
 | Batch 1 — Final | ✅ Complete | Daily report + TASKS.md |
 | Batch 2 — Run 1 | ✅ Complete | Re-audit — 25 issues (overlap with Batch 1) |
 | Batch 2 — Final | ✅ Complete | 4 remaining High bugs fixed + report |
+| Batch 3 — Run 1 | ✅ Complete | Re-audit — catalogued 9 remaining items |
+| Batch 3 — Run 2 | ✅ Complete | 8 fixes: H6, M3, M4, M5, B8, U8, A9, A10 |

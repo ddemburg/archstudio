@@ -2866,10 +2866,12 @@ function AllTasksPage({db,nav,currentUser}){
   const [fOwner,setFOwner]=useState('all');
   const [fPri,setFPri]=useState('');
   const [fStatus,setFStatus]=useState('');
+  const [sortBy,setSortBy]=useState('default');
   const [oid,setOID]=useState(null);
 
   const myId=currentUser?.id||'';
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
+  const PRI_W={'High':3,'Medium':2,'Low':1};
   const PRI_HE={'High':'דחוף','Medium':'בינוני','Low':'נמוך'};
   const ST_HE={'To Do':'להתחלה','In Progress':'בתהליך','Done':'הושלם','Blocked':'חסום'};
   const ST_SC={'Done':{bg:'#ECFDF5',col:'#065F46'},'In Progress':{bg:'#FFFBEB',col:'#B45309'},'To Do':{bg:'#F3F4F6',col:'#6B7280'},'Blocked':{bg:'#FEF2F2',col:'#DC2626'}};
@@ -2883,12 +2885,17 @@ function AllTasksPage({db,nav,currentUser}){
     else if(fOwner==='others') t=t.filter(x=>x.assignee_id&&x.assignee_id!==myId);
     if(fPri) t=t.filter(x=>(x.priority||'Medium')===fPri);
     if(fStatus) t=t.filter(x=>x.status===fStatus);
+    t=[...t];
+    if(sortBy==='pri_desc') t.sort((a,b)=>(PRI_W[b.priority||'Medium']||2)-(PRI_W[a.priority||'Medium']||2));
+    else if(sortBy==='pri_asc') t.sort((a,b)=>(PRI_W[a.priority||'Medium']||2)-(PRI_W[b.priority||'Medium']||2));
+    else if(sortBy==='dl_asc') t.sort((a,b)=>{if(!a.deadline&&!b.deadline)return 0;if(!a.deadline)return 1;if(!b.deadline)return -1;return new Date(a.deadline)-new Date(b.deadline);});
+    else if(sortBy==='dl_desc') t.sort((a,b)=>{if(!a.deadline&&!b.deadline)return 0;if(!a.deadline)return 1;if(!b.deadline)return -1;return new Date(b.deadline)-new Date(a.deadline);});
     return t;
-  },[db.tasks,fpid,fOwner,fPri,fStatus,myId]);
+  },[db.tasks,fpid,fOwner,fPri,fStatus,sortBy,myId]);
 
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
-  const resetFilters=()=>{setFPID('');setFOwner('all');setFPri('');setFStatus('');};
-  const hasFilter=fpid||fOwner!=='all'||fPri||fStatus;
+  const resetFilters=()=>{setFPID('');setFOwner('all');setFPri('');setFStatus('');setSortBy('default');};
+  const hasFilter=fpid||fOwner!=='all'||fPri||fStatus||sortBy!=='default';
 
   return<div>
     {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
@@ -2923,6 +2930,15 @@ function AllTasksPage({db,nav,currentUser}){
         <option value="In Progress">בתהליך</option>
         <option value="Done">הושלם</option>
         <option value="Blocked">חסום</option>
+      </select>
+      <div style={{width:1,height:20,background:'#E8E6E1',marginRight:4}}/>
+      <span style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>מיון:</span>
+      <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={selSt}>
+        <option value="default">ברירת מחדל</option>
+        <option value="pri_desc">דחיפות — גבוה לנמוך</option>
+        <option value="pri_asc">דחיפות — נמוך לגבוה</option>
+        <option value="dl_asc">תאריך יעד — הקרוב קודם</option>
+        <option value="dl_desc">תאריך יעד — הרחוק קודם</option>
       </select>
     </div>
 

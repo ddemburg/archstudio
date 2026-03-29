@@ -32,6 +32,26 @@ CRITICAL RULES — READ BEFORE ANY CODE EDIT:
 - NEVER push directly to multi-user — always push to the sentry branch (see below)
 - Netlify auto-deploys on every push to multi-user (so sentry branch is safe/staging)
 
+AUTH FLOW — ABSOLUTE NO-TOUCH ZONE:
+The following functions control login/session and must NEVER be modified:
+  gSignIn, gTrySilentSignIn, _sbRefreshSession, gSignOut, gIsSignedIn,
+  sbAuthHeaders, sbHeaders, sbQuery, sbGetMember, sbEnsureMember
+Do NOT touch: sessionStorage('arch_session'), _sbSession, _sbUserEmail,
+  DriveLoginScreen component, the auth hash parsing logic (#access_token).
+Reason: any change here can break the login flow for all users on the live site.
+Past incident: sentry agent caused a double-login-screen bug by modifying auth area.
+
+UI CHANGE SAFETY RULES:
+- NEVER replace working inline styles with CSS variables unless you verify
+  the variable is actually defined AND applied in that context.
+- CSS custom properties added to :root only work if elements reference them —
+  adding vars to :root without updating elements does nothing visible.
+- When applying branding changes, prefer ADDING styles over REPLACING them.
+- Do NOT change background colors of the main app shell or sidebar without
+  verifying the full component tree — a wrong color can make text invisible.
+- If an element has a working inline style, leave it. Only change elements
+  that are clearly unstyled or broken.
+
 ================================================================================
   BRANCH STRATEGY
 ================================================================================

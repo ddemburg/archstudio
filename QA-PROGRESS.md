@@ -106,5 +106,36 @@
 | H5 | ✅ Fixed — `<Av name={p.name} color={p.color}/>` → `<Av u={p}/>` |
 | M1–M8 | ⬜ Pending |
 | L1–L4 | ⬜ Pending |
-| U1–U13 | ⬜ Pending |
+| U1 | ⬜ Deferred — full dark-theme migration required (all text colors must update) |
+| U2 | ⬜ Deferred — card glass backgrounds require dark-theme context first |
+| U3 | ✅ Fixed — Btn primary now uses gold glass gradient + gold text (#c9983a) |
+| U4 | ⬜ Deferred — Modal glass bg requires dark-theme context (would hide dark text) |
+| U5 | ⬜ Deferred — SBadge semantic glass colors require dark-theme context |
+| U6 | ⬜ Pending |
+| U7 | ⬜ Pending (Run 4) |
+| U8 | ✅ Fixed — all branding CSS vars added to :root (steel/gold/semantic palette + --border2 + --shadow) |
+| U9 | ✅ Fixed — .hc:hover class defined with box-shadow hover effect |
+| U10 | ✅ Fixed — @keyframes pulse and @keyframes spin added |
+| U11 | ✅ Fixed — .trow class defined with hover background |
+| U12 | ✅ Fixed — .card class defined (white bg, border, shadow) |
+| U13 | ✅ Fixed — sidebar active state uses gold gradient + #e0b255 text + gold right-border accent |
 | F1–F2 | ⬜ Pending |
+
+---
+
+## Run 3 Notes
+
+**Applied (2026-03-29):**
+- U3: Btn primary → gold glass (gradient + gold text + gold border + hover glow)
+- U8: All branding CSS vars declared in :root (steel palette, gold palette, semantic colors, --border2, --shadow)
+- U9: `.hc:hover` defined — hover box-shadow on interactive cards
+- U10: `@keyframes pulse` and `@keyframes spin` added — DriveBanner pulse and login spinner now animate
+- U11: `.trow` defined — table row hover in ReportsPage
+- U12: `.card` defined — LeadsPage card panels now have white bg + border + shadow
+- U13: Sidebar active state → gold gradient bg + #e0b255 text + gold right-border accent
+
+**Deferred (requires full dark-theme migration first):**
+- U1: Body background #F5F4F0 → dark steel #0f1318 — all dark text colors (#1A1A1A, etc.) would become invisible
+- U2: Cards/panels glass background — same issue (white text not present in card content)
+- U4: Modal glass background — same issue (children have hardcoded dark text)
+- U5: SBadge semantic glass colors — glass tints designed for dark backgrounds

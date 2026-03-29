@@ -104,15 +104,23 @@
 | H3 | ✅ Fixed — replaced Tailwind classes with inline styles on "New Project" btn |
 | H4 | ✅ Fixed — replaced Tailwind classes with inline styles on "Client Portal" btn |
 | H5 | ✅ Fixed — `<Av name={p.name} color={p.color}/>` → `<Av u={p}/>` |
-| M1–M8 | ⬜ Pending |
-| L1–L4 | ⬜ Pending |
+| M1 | ✅ Fixed — `form.clients||[]` → `form.client_ids||[]` in SettingsTab save() |
+| M2 | ✅ Fixed — `NewProjectModal` now accepts `preTpl` prop; useEffect sets selTpl when modal opens |
+| M3 | ⬜ Pending — `_gAccessToken` always empty (Drive backup); complex auth change deferred |
+| M4 | ✅ Already fixed in Run 3 — `--border`, `--border2`, `--shadow` defined in :root |
+| M5 | ✅ Fixed — Added `TASK_STATUS_HEB` map for task status labels in LogTab (replaces misused STATUS_MAP) |
+| M6 | ⬜ Pending — file upload uses anon key; auth-sensitive, deferred |
+| M7 | ✅ Fixed — removed literal `'` chars from `'איש קשר חדש'` and `'הוסף'` in CRMPage |
+| M8 | ✅ Fixed — `db.partners[0].id` → `currentUser?.id` in Dashboard (Dashboard now receives currentUser prop) |
+| L1 | ✅ Fixed — removed `partners` from auto-save useEffect deps (derived from officeMembers) |
+| L2–L4 | ⬜ Pending |
 | U1 | ⬜ Deferred — full dark-theme migration required (all text colors must update) |
 | U2 | ⬜ Deferred — card glass backgrounds require dark-theme context first |
 | U3 | ✅ Fixed — Btn primary now uses gold glass gradient + gold text (#c9983a) |
 | U4 | ⬜ Deferred — Modal glass bg requires dark-theme context (would hide dark text) |
 | U5 | ⬜ Deferred — SBadge semantic glass colors require dark-theme context |
-| U6 | ⬜ Pending |
-| U7 | ⬜ Pending (Run 4) |
+| U6 | ✅ Fixed — font stack updated to Inter/Heebo/Segoe UI/system-ui |
+| U7 | ✅ Fixed — fluid typography CSS vars (--text-xs through --text-3xl clamp scale) added to :root |
 | U8 | ✅ Fixed — all branding CSS vars added to :root (steel/gold/semantic palette + --border2 + --shadow) |
 | U9 | ✅ Fixed — .hc:hover class defined with box-shadow hover effect |
 | U10 | ✅ Fixed — @keyframes pulse and @keyframes spin added |
@@ -139,3 +147,28 @@
 - U2: Cards/panels glass background — same issue (white text not present in card content)
 - U4: Modal glass background — same issue (children have hardcoded dark text)
 - U5: SBadge semantic glass colors — glass tints designed for dark backgrounds
+
+---
+
+## Run 4 Notes
+
+**Applied (2026-03-29):**
+- U6: Font stack updated — `'Inter','Heebo','Segoe UI',system-ui,-apple-system,sans-serif`
+- U7: Fluid typography CSS vars added to :root — `--text-xs` through `--text-3xl` (clamp scale), `--leading-*`, `--tracking-*`
+- Transitions: `--transition-fast/normal/slow` CSS vars added to :root
+- Animation: `@keyframes fadeSlideUp` + `.animate-appear` class added
+- M1: `form.clients||[]` → `form.client_ids||[]` in SettingsTab client validation
+- M2: `NewProjectModal` now accepts and uses `preTpl` prop (useEffect auto-selects template on open)
+- M5: `TASK_STATUS_HEB` map introduced for task log status labels (replaces misused project STATUS_MAP)
+- M7: Removed literal single-quote artifacts from CRMPage JSX (`'איש קשר חדש'` and `'הוסף'`)
+- M8: Dashboard `manager_id` "אני" check now uses `currentUser?.id` (Dashboard receives currentUser prop)
+- L1: Removed `partners` from auto-save useEffect deps (it's derived from officeMembers, not independent state)
+
+**Still pending:**
+- M3: autoBackup uses _gAccessToken which is always empty — complex auth issue, deferred
+- M6: sbUploadFile uses SUPABASE_ANON instead of user token — auth-sensitive, deferred
+- L2: User display name fallback shows email on first load
+- L3: BookingPage duration display off-by-one
+- L4: window.prompt/confirm UX
+- F1, F2: Feature gaps (file upload UI, Drive backup)
+- U1, U2, U4, U5: Dark-theme glass system deferred

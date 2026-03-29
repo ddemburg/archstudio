@@ -11,7 +11,7 @@
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Heebo',sans-serif;background:#F5F4F0;color:#1A1A1A;direction:rtl}
+  body{font-family:'Inter','Heebo','Segoe UI',system-ui,-apple-system,sans-serif;background:#F5F4F0;color:#1A1A1A;direction:rtl}
   :root{
     --green:#3D7A5A;--gold:#B45309;--red:#DC2626;--red-light:#FEF2F2;--border:#E8E6E1;--border2:#D1CBC1;--text2:#6B6B6B;
     --shadow:0 2px 12px rgba(0,0,0,.08);
@@ -19,6 +19,17 @@
     --color-steel-500:#4a5a78;--color-steel-400:#7a8fb0;--color-steel-300:#b0bdd4;--color-steel-200:#d4dbe8;--color-steel-100:#eef1f7;
     --color-gold-600:#7a5c1e;--color-gold-500:#a67c2e;--color-gold-400:#c9983a;--color-gold-300:#e0b255;--color-gold-200:#f0cc7a;--color-gold-100:#fde8a8;
     --color-success:#3d8f5f;--color-warning:#b8822a;--color-error:#8f3d3d;--color-info:#3d668f;
+    --text-xs:clamp(0.65rem,0.6rem + 0.25vw,0.75rem);
+    --text-sm:clamp(0.78rem,0.72rem + 0.3vw,0.875rem);
+    --text-base:clamp(0.9rem,0.85rem + 0.35vw,1rem);
+    --text-md:clamp(1rem,0.95rem + 0.4vw,1.125rem);
+    --text-lg:clamp(1.1rem,1rem + 0.5vw,1.25rem);
+    --text-xl:clamp(1.2rem,1.1rem + 0.65vw,1.5rem);
+    --text-2xl:clamp(1.4rem,1.25rem + 0.85vw,1.875rem);
+    --text-3xl:clamp(1.65rem,1.4rem + 1.1vw,2.25rem);
+    --leading-tight:1.2;--leading-normal:1.5;--leading-loose:1.75;
+    --tracking-tight:-0.02em;--tracking-normal:0;--tracking-wide:0.04em;--tracking-wider:0.08em;
+    --transition-fast:0.12s ease;--transition-normal:0.2s ease;--transition-slow:0.35s cubic-bezier(0.4,0,0.2,1);
   }
   .hr:hover{background:#FAFAF8!important}
   .hc:hover{box-shadow:0 4px 16px rgba(0,0,0,.12)!important;transition:box-shadow .2s ease}
@@ -26,6 +37,8 @@
   .trow:hover{background:#FAFAF8}
   .fade{animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .animate-appear{animation:fadeSlideUp 0.2s ease forwards}
   @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
   @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
@@ -1225,7 +1238,7 @@ function useApp(){
     if(!driveReady||!gIsSignedIn())return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(()=>{const s=getState();driveSave(s);autoBackup(s);},2000);
-  },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
+  },[projects,tasks,docs,reqs,approvs,committees,templates,crm,leads,driveReady]);
 
   return {
     driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
@@ -2458,7 +2471,7 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
   const u=(k,v)=>setF(f=>({...f,[k]:v}));
   const save=()=>{
     // Validate clients before saving
-    const clients=form.clients||[];
+    const clients=form.client_ids||[];
     for(const cl of clients){
       if(cl.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cl.email)){alert('אימייל לא תקין: '+cl.email);return;}
       if(cl.phone&&!/^[0-9+\-\s()]{7,15}$/.test(cl.phone.trim())){alert('טלפון לא תקין: '+cl.phone);return;}
@@ -2582,10 +2595,11 @@ function SettingsTab({project,db,onDel,currentUser,onOpenLog}){
 
 // ─── Project Detail ───────────────────────────────────────────────────────────
 // ─── Log Tab ──────────────────────────────────────────────────────────────────
+const TASK_STATUS_HEB={'To Do':'לביצוע','In Progress':'בביצוע','Done':'בוצע','Blocked':'חסום'};
 function LogTab({project}){
   const log=[...(project.project_log||[])].reverse(); // newest first
   const ACTION_CFG={
-    status:  {e:'🔄', label:(e)=>`${e.taskTitle}: ${STATUS_MAP[e.from]||e.from} ← ${STATUS_MAP[e.to]||e.to}`},
+    status:  {e:'🔄', label:(e)=>`${e.taskTitle}: ${TASK_STATUS_HEB[e.from]||e.from} ← ${TASK_STATUS_HEB[e.to]||e.to}`},
     add:     {e:'➕', label:(e)=>`נוספה: "${e.taskTitle}"`},
     delete:  {e:'🗑', label:(e)=>`נמחקה: "${e.taskTitle}"`},
     rename:  {e:'✏️', label:(e)=>`שונה שם: "${e.from}" → "${e.to}"`},
@@ -2681,10 +2695,11 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
 }
 
 // ─── New Project Modal ────────────────────────────────────────────────────────
-function NewProjectModal({open,onClose,db}){
+function NewProjectModal({open,onClose,db,preTpl=''}){
   const blank={name:'',address:'',status:'Planning',client_name:'',client_email:'',client_phone:'',budget:'',notes:'',planning_committee_id:'',gush:'',helka:'',migrash:''};
   const [form,setF]=useState(blank);
   const [selTpl,setSelTpl]=useState('');
+  useEffect(()=>{if(open&&preTpl)setSelTpl(preTpl);},[open,preTpl]);
   const u=(k,v)=>setF(f=>({...f,[k]:v}));
   const byType=db.committees.reduce((acc,c)=>{if(!acc[c.type])acc[c.type]=[];acc[c.type].push(c);return acc;},{});
 
@@ -2756,7 +2771,7 @@ function NewProjectModal({open,onClose,db}){
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
+function Dashboard({db,nav,onNew,onOpen,setPortalPid,currentUser}){
   const [search,setS]=useState('');
   const [fSt,setFSt]=useState('All');
   const [fC,setFC]=useState('All');
@@ -2830,7 +2845,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
             {p.address&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>📍 {p.address}</div>}
             {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
             {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
-            {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
+            {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===currentUser?.id?'אני':m.name}</div>:null;})()}
             {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'white',border:'1px solid #D5D3CE',borderRadius:6,color:'#4a7c5e',fontSize:11,fontWeight:600,letterSpacing:'.04em',cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s'}}>👁 פורטל לקוח</button></div>}
           </div>
         </div>;
@@ -3429,7 +3444,7 @@ function CRMPage({db,nav,currentUser}){
 
     {/* Add/Edit Form */}
     {openId==='__new__'&&<div className="fade" style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,padding:20,marginBottom:18,boxShadow:'0 2px 12px rgba(0,0,0,.06)'}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>'איש קשר חדש'</div>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>איש קשר חדש</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
         <SE label="סוג" value={form.type} onChange={e=>u('type',e.target.value)}>
           {Object.entries(TYPE_CFG).map(([t,c])=><option key={t} value={t}>{c.e} {c.label.slice(0,-2)||c.label}</option>)}
@@ -3468,7 +3483,7 @@ function CRMPage({db,nav,currentUser}){
       <TA label="הערות" value={form.notes} onChange={e=>u('notes',e.target.value)} rows={2}/>
       <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
         <Btn v="ghost" onClick={closeForm}>ביטול</Btn>
-        <Btn onClick={save} disabled={!form.name.trim()}>'הוסף'</Btn>
+        <Btn onClick={save} disabled={!form.name.trim()}>הוסף</Btn>
       </div>
     </div>}
 
@@ -4166,7 +4181,7 @@ function App(){
     {/* Main */}
     <main style={{marginRight:232,flex:1,padding:"28px 40px",minHeight:"100vh",maxWidth:"calc(100vw - 232px)"}}>
       <div className="fade" key={page+pid}>
-        {page==='dashboard'  && <Dashboard db={db} nav={nav} onNew={()=>setShowNew(true)} onOpen={openProj} setPortalPid={setPortalPid}/>}
+        {page==='dashboard'  && <Dashboard db={db} nav={nav} onNew={()=>setShowNew(true)} onOpen={openProj} setPortalPid={setPortalPid} currentUser={currentUser}/>}
         {page==='project'    && proj && <ProjectDetail project={proj} db={db} onBack={()=>{setPage('dashboard');setPID(null);}} currentUser={currentUser} onOpenPortal={()=>setPortalPid(proj.id)} nav={nav}/>}
         {page==='tasks'      && <AllTasksPage db={db} nav={nav} currentUser={currentUser}/>}
         {page==='leads'      && <LeadsPage db={db} nav={nav}/>}
@@ -4180,7 +4195,7 @@ function App(){
     </main>
 
     {portalPid&&(()=>{const pp=db.projects.find(p=>p.id===portalPid);return pp?<ClientPortal project={pp} db={db} onClose={()=>setPortalPid(null)}/>:null;})()}
-    <NewProjectModal open={showNew} onClose={()=>{setShowNew(false);setPreTpl('');}} db={db}/>
+    <NewProjectModal open={showNew} onClose={()=>{setShowNew(false);setPreTpl('');}} db={db} preTpl={preTpl}/>
   </div>;
 }
 

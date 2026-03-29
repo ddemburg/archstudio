@@ -2656,7 +2656,7 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'log',l:'לוג',e:'📋'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
   const [showScheduler,setShowScheduler]=useState(false);
   return<div>
-    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)} members={officeMembers||[]}/>}
+    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)} members={db.officeMembers||[]}/>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}><span style={{color:'#9C9C9C',cursor:'pointer'}} onClick={onBack}>לוח בקרה</span><span style={{color:'#C0C0C0'}}>/</span><span style={{color:'#1A1A1A',fontWeight:600}}>{project.name}</span></div>
       <div style={{display:'flex',gap:8}}>

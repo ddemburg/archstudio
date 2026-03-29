@@ -2861,37 +2861,93 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
 }
 
 // ─── All Tasks Page ───────────────────────────────────────────────────────────
-function AllTasksPage({db,nav}){
-  const [fp,setFP]=useState('all');const [oid,setOID]=useState(null);
-  const tasks=fp==='all'?db.tasks:db.tasks.filter(t=>t.project_id===fp);
+function AllTasksPage({db,nav,currentUser}){
+  const [fpid,setFPID]=useState('');
+  const [fOwner,setFOwner]=useState('all');
+  const [fPri,setFPri]=useState('');
+  const [fStatus,setFStatus]=useState('');
+  const [oid,setOID]=useState(null);
+
+  const myId=currentUser?.id||'';
   const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
+  const PRI_HE={'High':'דחוף','Medium':'בינוני','Low':'נמוך'};
+  const ST_HE={'To Do':'להתחלה','In Progress':'בתהליך','Done':'הושלם','Blocked':'חסום'};
+  const ST_SC={'Done':{bg:'#ECFDF5',col:'#065F46'},'In Progress':{bg:'#FFFBEB',col:'#B45309'},'To Do':{bg:'#F3F4F6',col:'#6B7280'},'Blocked':{bg:'#FEF2F2',col:'#DC2626'}};
+  const selSt={height:32,padding:'0 10px',borderRadius:7,fontSize:12,border:'1px solid #E8E6E1',background:'white',fontFamily:'Heebo,sans-serif',color:'#4A4A4A',cursor:'pointer',outline:'none'};
+  const btnSt=(active)=>({height:32,padding:'0 12px',borderRadius:7,fontSize:12,fontWeight:active?600:400,border:active?'none':'1px solid #E8E6E1',background:active?'#1A1A1A':'white',color:active?'white':'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'});
+
+  const tasks=useMemo(()=>{
+    let t=db.tasks;
+    if(fpid) t=t.filter(x=>x.project_id===fpid);
+    if(fOwner==='mine') t=t.filter(x=>x.assignee_id===myId);
+    else if(fOwner==='others') t=t.filter(x=>x.assignee_id&&x.assignee_id!==myId);
+    if(fPri) t=t.filter(x=>(x.priority||'Medium')===fPri);
+    if(fStatus) t=t.filter(x=>x.status===fStatus);
+    return t;
+  },[db.tasks,fpid,fOwner,fPri,fStatus,myId]);
+
   const ot=oid?db.tasks.find(t=>t.id===oid):null;
+  const resetFilters=()=>{setFPID('');setFOwner('all');setFPri('');setFStatus('');};
+  const hasFilter=fpid||fOwner!=='all'||fPri||fStatus;
+
   return<div>
-    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={filteredPartners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
-    <h1 style={{fontSize:26,fontWeight:600,marginBottom:3}}>כל המשימות</h1>
-    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:18}}>מבט כולל על כל הפרויקטים</p>
-    <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
-      {[{id:'all',name:'הכל'},...db.projects].map(p=><button key={p.id} onClick={()=>setFP(p.id)} style={{height:32,padding:'0 10px',borderRadius:7,fontSize:12,fontWeight:500,border:fp===p.id?'none':'1px solid #E8E6E1',background:fp===p.id?'#1A1A1A':'white',color:fp===p.id?'white':'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>{p.name}</button>)}
+    {ot&&<TaskModal task={ot} allTasks={db.tasks} allProjects={db.projects} partners={db.partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+      <h1 style={{fontSize:26,fontWeight:600}}>כל המשימות</h1>
+      {hasFilter&&<button onClick={resetFilters} style={{...btnSt(false),color:'#EF4444',borderColor:'#FECACA'}}>✕ נקה פילטרים</button>}
     </div>
+    <p style={{fontSize:14,color:'#8C8C8C',marginBottom:16}}>מבט כולל על כל הפרויקטים — {tasks.length} משימות</p>
+
+    {/* Filters row */}
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
+      <span style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>פרויקט:</span>
+      {[{id:'',name:'הכל'},...db.projects].map(p=><button key={p.id||'all'} onClick={()=>setFPID(p.id)} style={btnSt(fpid===p.id)}>{p.name}</button>)}
+    </div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,alignItems:'center'}}>
+      <span style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>אחראי:</span>
+      <button onClick={()=>setFOwner('all')} style={btnSt(fOwner==='all')}>הכולם</button>
+      <button onClick={()=>setFOwner('mine')} style={btnSt(fOwner==='mine')}>המשימות שלי</button>
+      <button onClick={()=>setFOwner('others')} style={btnSt(fOwner==='others')}>של אחרים</button>
+      <div style={{width:1,height:20,background:'#E8E6E1',marginRight:4}}/>
+      <span style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>דחיפות:</span>
+      <select value={fPri} onChange={e=>setFPri(e.target.value)} style={selSt}>
+        <option value="">הכל</option>
+        <option value="High">דחוף</option>
+        <option value="Medium">בינוני</option>
+        <option value="Low">נמוך</option>
+      </select>
+      <span style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>סטטוס:</span>
+      <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={selSt}>
+        <option value="">הכל</option>
+        <option value="To Do">להתחלה</option>
+        <option value="In Progress">בתהליך</option>
+        <option value="Done">הושלם</option>
+        <option value="Blocked">חסום</option>
+      </select>
+    </div>
+
     <div style={{background:'white',border:'1px solid #E8E6E1',borderRadius:12,overflow:'hidden'}}>
-      {tasks.length===0&&<div style={{padding:48,textAlign:'center',color:'#8C8C8C'}}>אין משימות</div>}
+      {tasks.length===0&&<div style={{padding:48,textAlign:'center',color:'#8C8C8C'}}>
+        <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+        <div>אין משימות התואמות לפילטרים</div>
+        {hasFilter&&<button onClick={resetFilters} style={{marginTop:12,...btnSt(false)}}>נקה פילטרים</button>}
+      </div>}
       {tasks.map((t,i)=>{
         const proj=db.projects.find(p=>p.id===t.project_id),asgn=db.partners.find(p=>p.id===t.assignee_id);
         const od=t.deadline&&new Date(t.deadline)<new Date()&&t.status!=='Done';
-        const SC={'Done':{bg:'#ECFDF5',col:'#065F46'},'In Progress':{bg:'#FFFBEB',col:'#B45309'},'To Do':{bg:'#F3F4F6',col:'#6B7280'}};
-        const sc=SC[t.status];
+        const sc=ST_SC[t.status]||ST_SC['To Do'];
         const bl=(t.depends_on||[]).some(id=>{const d=db.tasks.find(x=>x.id===id);return d&&d.status!=='Done';});
         return<div key={t.id} onClick={()=>setOID(t.id)} className="hr" style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderTop:i>0?'1px solid #F5F5F3':'none',cursor:'pointer'}}>
           <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid '+(t.status==='Done'?'#4a7c5e':t.status==='In Progress'?'#F59E0B':'#D0CEC9'),background:t.status==='Done'?'#4a7c5e':'white',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
             {t.status==='Done'&&<span style={{color:'white',fontSize:9,fontWeight:700}}>✓</span>}
           </div>
           <span style={{flex:1,fontSize:13,color:t.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:t.status==='Done'?'line-through':''}}>{t.title}</span>
-          {proj&&<span style={{fontSize:11,color:'#8C8C8C',flexShrink:0}}>{proj.name}</span>}
+          {proj&&<span style={{fontSize:11,color:'#8C8C8C',flexShrink:0,maxWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{proj.name}</span>}
           {asgn&&<Av u={asgn} size={22}/>}
-          <span style={{color:PRI[t.priority||'Medium'],fontSize:12,flexShrink:0}}>●</span>
+          <span style={{color:PRI[t.priority||'Medium'],fontSize:12,flexShrink:0}} title={PRI_HE[t.priority||'Medium']}>●</span>
           {t.deadline&&<span style={{fontSize:11,color:od?'#EF4444':'#8C8C8C',flexShrink:0,fontWeight:od?600:400}}>{fmtD(t.deadline)}</span>}
           {bl&&<span style={{fontSize:11,color:'#EF4444',fontWeight:600,flexShrink:0}}>⛔</span>}
-          <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:999,background:sc.bg,color:sc.col,flexShrink:0}}>{t.status==='Done'?'הושלם':t.status==='In Progress'?'בתהליך':'להתחלה'}</span>
+          <span style={{fontSize:11,fontWeight:600,padding:'2px 7px',borderRadius:999,background:sc.bg,color:sc.col,flexShrink:0}}>{ST_HE[t.status]||t.status}</span>
         </div>;
       })}
     </div>
@@ -4116,7 +4172,7 @@ function App(){
       <div className="fade" key={page+pid}>
         {page==='dashboard'  && <Dashboard db={db} nav={nav} onNew={()=>setShowNew(true)} onOpen={openProj} setPortalPid={setPortalPid}/>}
         {page==='project'    && proj && <ProjectDetail project={proj} db={db} onBack={()=>{setPage('dashboard');setPID(null);}} currentUser={currentUser} onOpenPortal={()=>setPortalPid(proj.id)} nav={nav}/>}
-        {page==='tasks'      && <AllTasksPage db={db} nav={nav}/>}
+        {page==='tasks'      && <AllTasksPage db={db} nav={nav} currentUser={currentUser}/>}
         {page==='leads'      && <LeadsPage db={db} nav={nav}/>}
         {page==='crm'        && <CRMPage db={db} nav={nav} currentUser={currentUser}/>}
         {page==='reports'     && <ReportsPage db={db} nav={nav}/>}

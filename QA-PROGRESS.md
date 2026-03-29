@@ -98,12 +98,12 @@
 
 | ID | Status |
 |----|--------|
-| C1 | ⬜ Pending |
-| H1 | ⬜ Pending |
-| H2 | ⬜ Pending |
-| H3 | ⬜ Pending |
-| H4 | ⬜ Pending |
-| H5 | ⬜ Pending |
+| C1 | ✅ Fixed — `logDelTask` recursive call → `db.delTask(id)` |
+| H1 | ✅ Fixed — `TaskRow` moved to module scope; `ctx` object pattern for deps |
+| H2 | ✅ Fixed — added `db={db}` prop to `<TaskModal>` in `FlowTab` |
+| H3 | ✅ Fixed — replaced Tailwind classes with inline styles on "New Project" btn |
+| H4 | ✅ Fixed — replaced Tailwind classes with inline styles on "Client Portal" btn |
+| H5 | ✅ Fixed — `<Av name={p.name} color={p.color}/>` → `<Av u={p}/>` |
 | M1–M8 | ⬜ Pending |
 | L1–L4 | ⬜ Pending |
 | U1–U13 | ⬜ Pending |

@@ -1810,7 +1810,7 @@ function FlowTab({tasks,projectId,allTasks,allProjs,partners,db}){
 
   return<div>
     {openTask&&<TaskModal task={openTask} allTasks={allTasks} allProjects={allProjs} partners={partners}
-      onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)}/>}
+      onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={id=>setOID(id)} db={db}/>}
 
     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16}}>
       {[{id:'flow',l:'🗺 זרימה ותלויות'},{id:'kanban',l:'📋 Kanban'}].map(v=>
@@ -1843,6 +1843,93 @@ function PartnerChip({partner,style={}}){
   </span>;
 }
 
+// ── TaskRow — module-scope to prevent remount on TasksTab re-render ──────────
+function TaskRow({task,depth,ctx}){
+  depth=depth||0;
+  const {allTasks,partners,expanded,toggleExpand,setOID,blocked,cycle,
+         editingId,editTitle,setEditTitle,setEditingId,logUpdTask,logDelTask,
+         addSubIn,newSubTitle,setNST,setASI,addSubtask}=ctx;
+  const bl=blocked(task);
+  const asgn=partners.find(p=>p.id===task.assignee_id);
+  const children=allTasks.filter(t=>t.parent_task_id===task.id);
+  const hasChildren=children.length>0;
+  const isExpanded=expanded[task.id]!==false;
+  const childDone=children.filter(t=>t.status==='Done').length;
+  const allChildDone=hasChildren&&childDone===children.length;
+  const anyChildDone=hasChildren&&childDone>0;
+  const isReady=task._ready===true&&(task.status==='To Do'||task.status==='Blocked');
+  const indent=depth*18;
+  const PRI={'Low':'#9CA3AF','Medium':'#F59E0B','High':'#EF4444'};
+  const BD={'To Do':'#D0CEC9','In Progress':'#F59E0B','Done':'#4a7c5e'};
+  const BG={'To Do':'white','In Progress':'#FFFBEB','Done':'#4a7c5e'};
+  return<div>
+    {/* Row */}
+    <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'white'}}
+      onClick={()=>setOID(task.id)}>
+      {hasChildren
+        ?<button onClick={e=>{e.stopPropagation();toggleExpand(task.id);}}
+            style={{background:'none',border:'none',cursor:'pointer',color:'#9C9C9C',fontSize:10,padding:'0 1px',flexShrink:0,transition:'transform .15s',transform:isExpanded?'rotate(0deg)':'rotate(-90deg)',lineHeight:1}}>▼</button>
+        :<div style={{width:14,flexShrink:0}}/>}
+      <div onClick={e=>{e.stopPropagation();!bl&&cycle(task);}}
+        style={{width:depth===0?20:16,height:depth===0?20:16,borderRadius:'50%',border:'2px solid '+BD[task.status],background:BG[task.status],flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',cursor:bl?'not-allowed':'pointer',opacity:bl?.5:1,transition:'all .15s'}}>
+        {task.status==='Done'&&<span style={{color:'white',fontSize:depth===0?9:8,fontWeight:700}}>✓</span>}
+        {task.status==='In Progress'&&<span style={{width:depth===0?7:5,height:depth===0?7:5,borderRadius:'50%',background:'#F59E0B',display:'block'}}/>}
+      </div>
+      {editingId===task.id
+        ?<input autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)}
+            onBlur={()=>{if(editTitle.trim()&&editTitle.trim()!==task.title)logUpdTask(task.id,{title:editTitle.trim()});setEditingId(null);}}
+            onKeyDown={e=>{if(e.key==='Enter')e.target.blur();if(e.key==='Escape')setEditingId(null);}}
+            onClick={e=>e.stopPropagation()}
+            style={{flex:1,fontSize:depth===0?13:12,border:'1px solid #4a7c5e',borderRadius:5,padding:'2px 7px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
+        :<span onDoubleClick={e=>{e.stopPropagation();setEditingId(task.id);setEditTitle(task.title);}}
+            style={{flex:1,fontSize:depth===0?13:12,color:task.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:task.status==='Done'?'line-through':'',fontWeight:depth===0?500:400,cursor:'text'}}
+            title="לחץ פעמיים לשינוי שם">{task.title}</span>}
+      {(task._ts_done||task._ts_started||task._ts_reverted)&&(()=>{
+        let ts,by,icon,color,bg;
+        if(task.status==='Done'&&task._ts_done){ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#059669';bg='#ECFDF5';}
+        else if(task.status==='In Progress'&&task._ts_started){ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#D97706';bg='#FFFBEB';}
+        else if(task._ts_reverted){ts=task._ts_reverted;by=task._ts_reverted_by;icon='↩';color='#9C9C9C';bg='#F3F4F6';}
+        else if(task._ts_done){ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#9C9C9C';bg='#F3F4F6';}
+        else if(task._ts_started){ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#9C9C9C';bg='#F3F4F6';}
+        if(!ts)return null;
+        const d=new Date(ts);
+        const dateStr=d.toLocaleDateString('he-IL',{day:'numeric',month:'short'});
+        const timeStr=d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
+        return<span style={{fontSize:9,color,background:bg,padding:'1px 5px',borderRadius:4,flexShrink:0,whiteSpace:'nowrap'}}>
+          {icon} {dateStr} {timeStr}{by?' · '+by:''}
+        </span>;
+      })()}
+      {hasChildren&&<span style={{fontSize:10,color:allChildDone?'#3D7A5A':anyChildDone?'#F59E0B':'#9C9C9C',background:allChildDone?'#ECFDF5':anyChildDone?'#FFFBEB':'#F3F4F6',padding:'1px 6px',borderRadius:4,fontWeight:600,flexShrink:0}}>
+        {childDone}/{children.length}
+      </span>}
+      {(task.notes||[]).length>0&&<span style={{fontSize:11,color:'#B0B0B0'}}>💬{task.notes.length}</span>}
+      {(task.depends_on||[]).length>0&&<span style={{fontSize:11,color:bl?'#EF4444':'#C0C0C0'}}>{bl?'⛔':'🔗'}</span>}
+      {isReady&&<span style={{display:'inline-flex',alignItems:'center',gap:3,background:'#ECFDF5',color:'#065F46',border:'1.5px solid #34D399',borderRadius:999,padding:'2px 8px',fontSize:10,fontWeight:800,flexShrink:0,animation:'readyPulse 1.8s ease-in-out infinite'}}>⚡ מוכן לביצוע</span>}
+      <span style={{color:PRI[task.priority||'Medium'],fontSize:depth===0?12:10,flexShrink:0}}>●</span>
+      {asgn&&<Av u={asgn} size={depth===0?22:18}/>}
+      {task.deadline&&<span style={{fontSize:10,color:new Date(task.deadline)<new Date()&&task.status!=='Done'?'#EF4444':'#9C9C9C',flexShrink:0}}>{fmtD(task.deadline)}</span>}
+      <button onClick={e=>{e.stopPropagation();setASI(task.id);setNST('');}}
+        style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:12,padding:'0 2px',flexShrink:0}}
+        title="הוסף תת-משימה"
+        onMouseOver={e=>e.target.style.color='#3D7A5A'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>⊕</button>
+      <button onClick={e=>{e.stopPropagation();logDelTask(task.id);}}
+        style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:13,padding:2,flexShrink:0}}
+        onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
+    </div>
+    {addSubIn===task.id&&<div style={{display:'flex',gap:6,padding:`6px 12px 6px ${12+indent+18}px`,background:'#F5F4F0',borderTop:'1px solid #EEE'}}>
+      <input autoFocus value={newSubTitle} onChange={e=>setNST(e.target.value)}
+        onKeyDown={e=>{if(e.key==='Enter')addSubtask(task.id);if(e.key==='Escape')setASI(null);}}
+        placeholder="שם תת-משימה..."
+        style={{flex:1,height:28,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:12,fontFamily:'Heebo,sans-serif'}}/>
+      <Btn sz="sm" v="accent" onClick={()=>addSubtask(task.id)}>הוסף</Btn>
+      <Btn sz="sm" v="ghost" onClick={()=>setASI(null)}>ביטול</Btn>
+    </div>}
+    {isExpanded&&hasChildren&&<div style={{borderTop:'1px solid #F5F5F3'}}>
+      {children.map(child=><TaskRow key={child.id} task={child} depth={depth+1} ctx={ctx}/>)}
+    </div>}
+  </div>;
+}
+
 // ─── Tasks Tab ────────────────────────────────────────────────────────────────
 function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   // Logged wrappers — auto-record to project log
@@ -1871,7 +1958,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
   const logDelTask=(id)=>{
     const t=allTasks.find(x=>x.id===id);
     if(t) db.addLog(pid,{user:logUser,action:'delete',taskTitle:t.title});
-    logDelTask(id);
+    db.delTask(id);
   };
 
   const [newTitle,setNT]=useState('');
@@ -1962,129 +2049,10 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
 
   const openTask=openId?allTasks.find(t=>t.id===openId):null;
 
-  // ── Recursive TaskRow ────────────────────────────────────────────────────
-  const TaskRow=({task,depth=0})=>{
-    const bl=blocked(task);
-    const asgn=partners.find(p=>p.id===task.assignee_id);
-    const children=allTasks.filter(t=>t.parent_task_id===task.id);
-    const hasChildren=children.length>0;
-    const isExpanded=expanded[task.id]!==false; // default open
-    const childDone=children.filter(t=>t.status==='Done').length;
-    const allChildDone=hasChildren&&childDone===children.length;
-    const anyChildDone=hasChildren&&childDone>0;
-    // Ready to execute: has dependencies, all deps Done, all subtasks Done, not yet started
-    const deps=task.depends_on||[];
-    const isReady=task._ready===true&&(task.status==='To Do'||task.status==='Blocked');
-
-    // indent via depth
-    const indent=depth*18;
-
-    return<div>
-      {/* Row */}
-      <div className="hr" style={{display:'flex',alignItems:'center',gap:6,padding:`6px 12px 6px ${12+indent}px`,borderRadius:depth===0?7:0,cursor:'pointer',borderTop:depth>0?'1px solid #F8F7F5':'none',background:depth>0?'#FAFAF8':'white'}}
-        onClick={()=>setOID(task.id)}>
-
-        {/* Expand arrow */}
-        {hasChildren
-          ?<button onClick={e=>{e.stopPropagation();toggleExpand(task.id);}}
-              style={{background:'none',border:'none',cursor:'pointer',color:'#9C9C9C',fontSize:10,padding:'0 1px',flexShrink:0,transition:'transform .15s',transform:isExpanded?'rotate(0deg)':'rotate(-90deg)',lineHeight:1}}>▼</button>
-          :<div style={{width:14,flexShrink:0}}/>}
-
-        {/* Status circle */}
-        <div onClick={e=>{e.stopPropagation();!bl&&cycle(task);}}
-          style={{width:depth===0?20:16,height:depth===0?20:16,borderRadius:'50%',border:'2px solid '+BD[task.status],background:BG[task.status],flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',cursor:bl?'not-allowed':'pointer',opacity:bl?.5:1,transition:'all .15s'}}>
-          {task.status==='Done'&&<span style={{color:'white',fontSize:depth===0?9:8,fontWeight:700}}>✓</span>}
-          {task.status==='In Progress'&&<span style={{width:depth===0?7:5,height:depth===0?7:5,borderRadius:'50%',background:'#F59E0B',display:'block'}}/>}
-        </div>
-
-        {/* Title — double-click to rename */}
-        {editingId===task.id
-          ?<input autoFocus value={editTitle} onChange={e=>setEditTitle(e.target.value)}
-              onBlur={()=>{if(editTitle.trim()&&editTitle.trim()!==task.title)logUpdTask(task.id,{title:editTitle.trim()});setEditingId(null);}}
-              onKeyDown={e=>{if(e.key==='Enter')e.target.blur();if(e.key==='Escape')setEditingId(null);}}
-              onClick={e=>e.stopPropagation()}
-              style={{flex:1,fontSize:depth===0?13:12,border:'1px solid #4a7c5e',borderRadius:5,padding:'2px 7px',outline:'none',fontFamily:'Heebo,sans-serif'}}/>
-          :<span onDoubleClick={e=>{e.stopPropagation();setEditingId(task.id);setEditTitle(task.title);}}
-              style={{flex:1,fontSize:depth===0?13:12,color:task.status==='Done'?'#B0B0B0':'#1A1A1A',textDecoration:task.status==='Done'?'line-through':'',fontWeight:depth===0?500:400,cursor:'text'}}
-              title="לחץ פעמיים לשינוי שם">{task.title}</span>}
-
-        {/* Status timestamps */}
-        {(task._ts_done||task._ts_started||task._ts_reverted)&&(()=>{
-          // Pick most relevant timestamp to show
-          let ts,by,icon,color,bg;
-          if(task.status==='Done'&&task._ts_done){
-            ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#059669';bg='#ECFDF5';
-          } else if(task.status==='In Progress'&&task._ts_started){
-            ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#D97706';bg='#FFFBEB';
-          } else if(task._ts_reverted){
-            ts=task._ts_reverted;by=task._ts_reverted_by;icon='↩';color='#9C9C9C';bg='#F3F4F6';
-          } else if(task._ts_done){
-            ts=task._ts_done;by=task._ts_done_by;icon='✓';color='#9C9C9C';bg='#F3F4F6';
-          } else if(task._ts_started){
-            ts=task._ts_started;by=task._ts_started_by;icon='▶';color='#9C9C9C';bg='#F3F4F6';
-          }
-          if(!ts) return null;
-          const d=new Date(ts);
-          const dateStr=d.toLocaleDateString('he-IL',{day:'numeric',month:'short'});
-          const timeStr=d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
-          return<span style={{fontSize:9,color,background:bg,padding:'1px 5px',borderRadius:4,flexShrink:0,whiteSpace:'nowrap'}}>
-            {icon} {dateStr} {timeStr}{by?' · '+by:''}
-          </span>;
-        })()}
-
-        {/* Subtask progress badge */}
-        {hasChildren&&<span style={{fontSize:10,color:allChildDone?'#3D7A5A':anyChildDone?'#F59E0B':'#9C9C9C',background:allChildDone?'#ECFDF5':anyChildDone?'#FFFBEB':'#F3F4F6',padding:'1px 6px',borderRadius:4,fontWeight:600,flexShrink:0}}>
-          {childDone}/{children.length}
-        </span>}
-
-
-
-        {/* Notes count */}
-        {(task.notes||[]).length>0&&<span style={{fontSize:11,color:'#B0B0B0'}}>💬{task.notes.length}</span>}
-
-        {/* Dependency icon */}
-        {(task.depends_on||[]).length>0&&<span style={{fontSize:11,color:bl?'#EF4444':'#C0C0C0'}}>{bl?'⛔':'🔗'}</span>}
-
-        {/* Ready to execute badge */}
-        {isReady&&<span style={{display:'inline-flex',alignItems:'center',gap:3,background:'#ECFDF5',color:'#065F46',border:'1.5px solid #34D399',borderRadius:999,padding:'2px 8px',fontSize:10,fontWeight:800,flexShrink:0,animation:'readyPulse 1.8s ease-in-out infinite'}}>⚡ מוכן לביצוע</span>}
-
-        {/* Priority dot */}
-        <span style={{color:PRI[task.priority||'Medium'],fontSize:depth===0?12:10,flexShrink:0}}>●</span>
-
-        {/* Assignee */}
-        {asgn&&<Av u={asgn} size={depth===0?22:18}/>}
-
-        {/* Deadline */}
-        {task.deadline&&<span style={{fontSize:10,color:new Date(task.deadline)<new Date()&&task.status!=='Done'?'#EF4444':'#9C9C9C',flexShrink:0}}>{fmtD(task.deadline)}</span>}
-
-        {/* Add subtask btn */}
-        <button onClick={e=>{e.stopPropagation();setASI(task.id);setNST('');}}
-          style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:12,padding:'0 2px',flexShrink:0}}
-          title="הוסף תת-משימה"
-          onMouseOver={e=>e.target.style.color='#3D7A5A'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>⊕</button>
-
-        {/* Delete */}
-        <button onClick={e=>{e.stopPropagation();logDelTask(task.id);}}
-          style={{background:'none',border:'none',cursor:'pointer',color:'#D0CEC9',fontSize:13,padding:2,flexShrink:0}}
-          onMouseOver={e=>e.target.style.color='#EF4444'} onMouseOut={e=>e.target.style.color='#D0CEC9'}>🗑</button>
-      </div>
-
-      {/* Add subtask inline input */}
-      {addSubIn===task.id&&<div style={{display:'flex',gap:6,padding:`6px 12px 6px ${12+indent+18}px`,background:'#F5F4F0',borderTop:'1px solid #EEE'}}>
-        <input autoFocus value={newSubTitle} onChange={e=>setNST(e.target.value)}
-          onKeyDown={e=>{if(e.key==='Enter')addSubtask(task.id);if(e.key==='Escape')setASI(null);}}
-          placeholder="שם תת-משימה..."
-          style={{flex:1,height:28,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:12,fontFamily:'Heebo,sans-serif'}}/>
-        <Btn sz="sm" v="accent" onClick={()=>addSubtask(task.id)}>הוסף</Btn>
-        <Btn sz="sm" v="ghost" onClick={()=>setASI(null)}>ביטול</Btn>
-      </div>}
-
-      {/* Children — recursive */}
-      {isExpanded&&hasChildren&&<div style={{borderTop:'1px solid #F5F5F3'}}>
-        {children.map(child=><TaskRow key={child.id} task={child} depth={depth+1}/>)}
-      </div>}
-    </div>;
-  };
+  // ── ctx bundle passed to top-level TaskRow ────────────────────────────────
+  const ctx={allTasks,partners,expanded,toggleExpand,setOID,blocked,cycle,
+    editingId,editTitle,setEditTitle,setEditingId,logUpdTask,logDelTask,
+    addSubIn,newSubTitle,setNST,setASI,addSubtask};
 
   return<div>
     {openTask&&<TaskModal task={openTask} allTasks={allTasks} allProjects={allProjs} partners={partners} onUpdate={db.updTask} onClose={()=>setOID(null)} onJumpToTask={jumpToTask} db={db}/>}
@@ -2164,7 +2132,7 @@ function TasksTab({tasks,pid,allTasks,allProjs,partners,db}){
         })()}
         {exp&&<div style={{background:'white',border:'1px solid #F0EDE8',borderRadius:10,overflow:'hidden'}}>
           {st.length===0&&<p style={{fontSize:12,color:'#B0B0B0',padding:'10px 14px',fontStyle:'italic'}}>אין משימות</p>}
-          {st.map(t=><TaskRow key={t.id} task={t} depth={0}/>)}
+          {st.map(t=><TaskRow key={t.id} task={t} depth={0} ctx={ctx}/>)}
           {addingIn===sec
             ?<div style={{display:'flex',gap:6,padding:'7px 10px',borderTop:'1px solid #F5F5F3'}}>
               <input autoFocus value={newTitle} onChange={e=>setNT(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addTask(sec);if(e.key==='Escape')setAI(null);}} placeholder="שם משימה..." style={{flex:1,height:30,padding:'0 8px',border:'1px solid #E8E6E1',borderRadius:6,fontSize:13,fontFamily:'Heebo,sans-serif'}}/>
@@ -2831,7 +2799,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
         <option value="Low">Low</option>
       </FS>
       {activeF>0&&<button onClick={()=>{setFSt('All');setFC('All');setFU('All');setFP('All');setS('');}} style={{height:34,padding:'0 10px',borderRadius:7,border:'1px solid #FECACA',background:'#FEF2F2',color:'#DC2626',fontSize:12,cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>× נקה ({activeF})</button>}
-      <div style={{flex:1}}/><button onClick={onNew} className="inline-flex items-center gap-2 h-10 px-5 bg-accent-500 hover:bg-accent-600 active:bg-accent-700 text-white font-sans font-medium text-base tracking-tight rounded-lg border border-accent-500 transition-all duration-[180ms] cursor-pointer select-none">+ פרויקט חדש</button>
+      <div style={{flex:1}}/><button onClick={onNew} style={{height:40,padding:'0 20px',borderRadius:8,border:'none',background:'#1A1A1A',color:'white',fontSize:14,fontWeight:500,cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s',display:'inline-flex',alignItems:'center',gap:8}}>+ פרויקט חדש</button>
     </div>
     <div style={{fontSize:12,color:'#8C8C8C',marginBottom:10}}>{filtered.length} פרויקטים</div>
 
@@ -2851,7 +2819,7 @@ function Dashboard({db,nav,onNew,onOpen,setPortalPid}){
             {p.client_name&&<div style={{fontSize:12,color:'#8C8C8C',marginBottom:2}}>👤 {p.client_name}</div>}
             {p.planning_committee&&<div style={{fontSize:11,color:'#4a7c5e',fontWeight:500,marginBottom:4,cursor:'pointer'}} onClick={()=>nav.toDashboard()}>🏛 {p.planning_committee}</div>}
             {p.manager_id&&(()=>{const m=db.partners.find(pt=>pt.id===p.manager_id);return m?<div style={{fontSize:11,color:'#6B6B6B',marginBottom:4,cursor:'pointer'}} onClick={e=>{e.stopPropagation();nav.toDashboard();}}>🧑‍💼 {p.manager_id===db.partners[0].id?'אני':m.name}</div>:null;})()}
-            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} className="w-full h-8 bg-white hover:bg-stone-50 border border-stone-300 hover:border-accent-400 text-accent-600 font-sans font-semibold text-xs tracking-wide rounded-md transition-all duration-[180ms] cursor-pointer">👁 פורטל לקוח</button></div>}
+            {ms.length>0&&<div><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:11,color:'#8C8C8C'}}>התקדמות</span><span style={{fontSize:11,fontWeight:600}}>{prog}%</span></div><div style={{height:3,background:'#F0F0EC',borderRadius:2,overflow:'hidden',marginBottom:8}}><div style={{height:'100%',background:'#4a7c5e',width:prog+'%'}}/></div><button onClick={e=>{e.stopPropagation();onOpen(p.id);setTimeout(()=>setPortalPid(p.id),50);}} style={{width:'100%',height:32,background:'white',border:'1px solid #D5D3CE',borderRadius:6,color:'#4a7c5e',fontSize:11,fontWeight:600,letterSpacing:'.04em',cursor:'pointer',fontFamily:'Heebo,sans-serif',transition:'all .18s'}}>👁 פורטל לקוח</button></div>}
           </div>
         </div>;
       })}
@@ -2990,7 +2958,7 @@ function PartnersPage({db,nav}){
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
               ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
-              :<Av name={p.name} size={44} color={p.color}/>}
+              :<Av u={p} size={44}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
               <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>

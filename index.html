@@ -664,15 +664,15 @@ function BookingPage({token}){
 // ══════════════════════════════════════════════════════════════════════════
 // MEETING SCHEDULER MODAL — for staff (admin/manager/drafter)
 // ══════════════════════════════════════════════════════════════════════════
-function MeetingScheduler({project,onClose}){
+function MeetingScheduler({project,onClose,members=[]}){
   const proj=project||{name:'פגישה',client_email:''};
   const [step,setStep]=useState(1);
   const [selectedSlots,setSelectedSlots]=useState([]);
   const [busySlots,setBusySlots]=useState([]);
   const [loadingCal,setLoadingCal]=useState(false);
   const [calError,setCalError]=useState('');
-  const [viewMonth,setViewMonth]=useState({y:new Date().getFullYear(),m:new Date().getMonth()});
-  const [pickedDay,setPickedDay]=useState(null);
+  const [viewWeek,setViewWeek]=useState(()=>{const d=new Date();d.setDate(d.getDate()-d.getDay());d.setHours(0,0,0,0);return d;});
+  const [attendees,setAttendees]=useState([]);
   const [duration,setDuration]=useState(60);
   const [compForm,setCompForm]=useState({
     to:proj.client_email||'',
@@ -693,12 +693,12 @@ function MeetingScheduler({project,onClose}){
   useEffect(()=>{
     if(!gCalReady()) return;
     setLoadingCal(true);setCalError('');
-    const start=new Date(viewMonth.y,viewMonth.m,1);
-    const end=new Date(viewMonth.y,viewMonth.m+1,1);
+    const start=new Date(viewWeek);
+    const end=new Date(viewWeek);end.setDate(end.getDate()+7);
     gCalGetBusy(start,end)
       .then(b=>{setBusySlots(b);setLoadingCal(false);})
       .catch(()=>{setCalError('שגיאה בטעינת יומן');setLoadingCal(false);});
-  },[viewMonth.y,viewMonth.m]);
+  },[viewWeek]);
 
   const isHourBusy=(date,hour)=>{
     if(!gCalReady()) return false;
@@ -714,28 +714,11 @@ function MeetingScheduler({project,onClose}){
     });
   },[]);
 
-  // Calendar grid
+  // Week view helpers
   const today=new Date();
-  const firstDay=new Date(viewMonth.y,viewMonth.m,1);
-  const lastDay=new Date(viewMonth.y,viewMonth.m+1,0);
-  const startDow=(firstDay.getDay()+1)%7;
-  const calCells=[];
-  for(let i=0;i<startDow;i++) calCells.push(null);
-  for(let d=1;d<=lastDay.getDate();d++) calCells.push(new Date(viewMonth.y,viewMonth.m,d));
-
-  const isPast=d=>d&&d<today&&!sameDay2(d,today);
-  const isWeekend=d=>d&&(d.getDay()===5||d.getDay()===6);
   const sameDay2=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
-  const hasSelected=d=>d&&selectedSlots.some(s=>sameDay2(s.date,d));
-
-  const addAllFree=day=>{
-    WORK_HOURS.forEach(h=>{
-      if(!isHourBusy(day,h)){
-        const sl={id:`${day.toDateString()}-${h}`,date:new Date(day),hour:h,duration};
-        setSelectedSlots(prev=>prev.find(s=>s.id===sl.id)?prev:[...prev,sl].sort((a,b)=>a.date-b.date||a.hour-b.hour));
-      }
-    });
-  };
+  const weekDays=[0,1,2,3,4].map(i=>{const d=new Date(viewWeek);d.setDate(viewWeek.getDate()+i);d.setHours(0,0,0,0);return d;});
+  const toggleAttendee=m=>setAttendees(prev=>prev.some(a=>a.email===m.email)?prev.filter(a=>a.email!==m.email):[...prev,m]);
 
   // Generate unique booking token + save to Supabase
   const handleSend=async()=>{
@@ -754,6 +737,7 @@ function MeetingScheduler({project,onClose}){
         hostEmail:_sbUserEmail||sessionStorage.getItem('arch_email')||'',
         toEmail:compForm.to,
         toName:compForm.toName,
+        attendees:attendees.map(a=>({email:a.email,name:a.name||a.email})),
         createdAt:new Date().toISOString(),
       };
       await saveMeetingRequest(req);
@@ -789,64 +773,73 @@ function MeetingScheduler({project,onClose}){
       {gCalReady()&&loadingCal&&<div style={{fontSize:12,color:'#9C9C9C',padding:'4px 0'}}>⏳ טוען יומן...</div>}
       {calError&&<div style={{fontSize:12,color:'#DC2626'}}>{calError}</div>}
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-        {/* Calendar */}
-        <div style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',overflow:'hidden'}}>
-          <div style={{padding:'12px 16px',borderBottom:'1px solid #E8E6E1',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <button onClick={()=>setViewMonth(p=>({y:p.m===0?p.y-1:p.y,m:p.m===0?11:p.m-1}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#6B6B6B',padding:4}}>›</button>
-            <span style={{fontSize:14,fontWeight:700}}>{MONTH_HE_F[viewMonth.m]} {viewMonth.y}</span>
-            <button onClick={()=>setViewMonth(p=>({y:p.m===11?p.y+1:p.y,m:p.m===11?0:p.m+1}))} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#6B6B6B',padding:4}}>‹</button>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',padding:'6px 8px 2px'}}>
-            {['א','ב','ג','ד','ה','ו','ש'].map(d=><div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:'#B0B0B0',padding:'2px 0'}}>{d}</div>)}
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',padding:'2px 8px 10px',gap:2}}>
-            {calCells.map((day,i)=>{
-              if(!day) return <div key={`e${i}`}/>;
-              const past=isPast(day),wknd=isWeekend(day),disabled=past||wknd;
-              const picked=pickedDay&&sameDay2(day,pickedDay),hasSl=hasSelected(day);
-              return<div key={day.toDateString()} onClick={()=>!disabled&&setPickedDay(new Date(day))}
-                style={{height:32,borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:picked?700:hasSl?600:400,cursor:disabled?'default':'pointer',background:picked?'#3D7A5A':hasSl?'#EBF4EF':'transparent',color:picked?'white':disabled?'#D0D0D0':hasSl?'#2D5A42':'#1A1A1A',position:'relative',transition:'all .12s'}}
-                onMouseOver={e=>{if(!disabled&&!picked)e.currentTarget.style.background='#F0F0EC';}}
-                onMouseOut={e=>{if(!picked)e.currentTarget.style.background=hasSl?'#EBF4EF':'transparent';}}>
-                {day.getDate()}
-                {hasSl&&!picked&&<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:'#3D7A5A'}}/>}
-              </div>;
+      {/* Week navigation */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <button onClick={()=>setViewWeek(w=>{const d=new Date(w);d.setDate(d.getDate()-7);return d;})}
+          style={{height:32,padding:'0 14px',borderRadius:8,border:'1px solid #E8E6E1',background:'white',fontSize:13,color:'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>
+          → שבוע קודם
+        </button>
+        <span style={{fontSize:14,fontWeight:700,color:'#1A1A1A'}}>
+          {fmtMD(weekDays[0])} – {fmtMD(weekDays[4])} {weekDays[0].getFullYear()}
+        </span>
+        <button onClick={()=>setViewWeek(w=>{const d=new Date(w);d.setDate(d.getDate()+7);return d;})}
+          style={{height:32,padding:'0 14px',borderRadius:8,border:'1px solid #E8E6E1',background:'white',fontSize:13,color:'#6B6B6B',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>
+          שבוע הבא ←
+        </button>
+      </div>
+
+      {/* Weekly grid */}
+      <div style={{borderRadius:12,border:'1px solid #E8E6E1',background:'white',overflow:'hidden'}}>
+        {/* Day headers */}
+        <div style={{display:'grid',gridTemplateColumns:'44px repeat(5,1fr)',borderBottom:'2px solid #E8E6E1'}}>
+          <div style={{borderRight:'1px solid #E8E6E1'}}/>
+          {weekDays.map((d,i)=>{
+            const isToday=sameDay2(d,today);
+            const isPastDay=d<today&&!isToday;
+            return(
+              <div key={i} style={{textAlign:'center',padding:'10px 4px',borderRight:i<4?'1px solid #E8E6E1':'none',opacity:isPastDay?0.4:1}}>
+                <div style={{fontSize:11,fontWeight:700,color:'#B0B0B0',letterSpacing:'.04em'}}>
+                  {['ראשון','שני','שלישי','רביעי','חמישי'][i]}
+                </div>
+                <div style={{width:30,height:30,borderRadius:'50%',background:isToday?'#3D7A5A':'transparent',color:isToday?'white':'#1A1A1A',fontSize:16,fontWeight:isToday?800:600,display:'flex',alignItems:'center',justifyContent:'center',margin:'4px auto 0'}}>
+                  {d.getDate()}
+                </div>
+                <div style={{fontSize:10,color:'#C0B8B0',marginTop:2}}>{MONTH_HE_F[d.getMonth()].slice(0,3)}</div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Hour rows */}
+        {WORK_HOURS.map((h,hi)=>(
+          <div key={h} style={{display:'grid',gridTemplateColumns:'44px repeat(5,1fr)',borderBottom:hi<WORK_HOURS.length-1?'1px solid #F0EEE8':'none'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',paddingRight:8,borderRight:'1px solid #E8E6E1',fontSize:11,fontWeight:600,color:'#B0B0B0'}}>
+              {fmtTH(h)}
+            </div>
+            {weekDays.map((d,di)=>{
+              const isPastDay=d<today&&!sameDay2(d,today);
+              const busy=isHourBusy(d,h);
+              const sl={id:`${d.toDateString()}-${h}`,date:new Date(d),hour:h,duration};
+              const sel=selectedSlots.some(s=>s.id===sl.id);
+              const disabled=isPastDay||busy;
+              return(
+                <div key={di}
+                  onClick={()=>!disabled&&toggleSlot(sl)}
+                  style={{height:40,borderRight:di<4?'1px solid #F0EEE8':'none',background:sel?'#3D7A5A':busy?'#F7F5F2':'white',cursor:disabled?'default':'pointer',opacity:isPastDay?0.3:1,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:600,color:sel?'white':'#C0B0A0',transition:'background .12s'}}
+                  onMouseOver={e=>{if(!disabled&&!sel)e.currentTarget.style.background='#EBF4EF';}}
+                  onMouseOut={e=>{if(!sel)e.currentTarget.style.background=busy?'#F7F5F2':'white';}}
+                >
+                  {sel&&<span>✓ {fmtTH(h)}</span>}
+                  {busy&&!sel&&<span style={{fontSize:10}}>תפוס</span>}
+                </div>
+              );
             })}
           </div>
-        </div>
-        {/* Hour picker */}
-        {!pickedDay
-          ?<div style={{background:'#FAFAF8',borderRadius:12,border:'1px dashed #E8E6E1',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:8,padding:24}}>
-            <span style={{fontSize:32}}>📅</span>
-            <span style={{fontSize:13,color:'#B0B0B0',textAlign:'center'}}>לחץ על יום כדי לבחור שעות</span>
-          </div>
-          :<div style={{background:'white',borderRadius:12,border:'1px solid #E8E6E1',overflow:'hidden'}}>
-            <div style={{padding:'12px 14px',borderBottom:'1px solid #E8E6E1',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <span style={{fontSize:13,fontWeight:700}}>{fmtMD(pickedDay)}</span>
-              <button onClick={()=>addAllFree(pickedDay)} style={{fontSize:11,fontWeight:700,background:'#EBF4EF',color:'#2D5A42',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontFamily:'Heebo,sans-serif'}}>+ כל הפנוי</button>
-            </div>
-            <div style={{padding:'8px 10px',display:'flex',flexDirection:'column',gap:4,maxHeight:260,overflowY:'auto'}}>
-              {WORK_HOURS.map(h=>{
-                const busy=isHourBusy(pickedDay,h);
-                const sl={id:`${pickedDay.toDateString()}-${h}`,date:new Date(pickedDay),hour:h,duration};
-                const sel=selectedSlots.some(s=>s.id===sl.id);
-                return<div key={h} onClick={()=>!busy&&toggleSlot(sl)}
-                  style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${sel?'#3D7A5A':busy?'#F5F5F3':'#E8E6E1'}`,background:sel?'#EBF4EF':busy?'#FAFAF8':'white',cursor:busy?'not-allowed':'pointer',display:'flex',alignItems:'center',gap:8,opacity:busy?.4:1,transition:'all .12s'}}>
-                  <span style={{fontSize:12,fontWeight:600,color:sel?'#2D5A42':'#1A1A1A',minWidth:50}}>{fmtTH(h)}–{fmtTH(h+Math.floor(duration/60),duration%60)}</span>
-                  <span style={{flex:1,fontSize:11,color:'#B0B0B0'}}>{busy?'תפוס':sel?'✓ נבחר':'פנוי'}</span>
-                  {!busy&&<div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#3D7A5A':'white',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {sel&&<span style={{color:'white',fontSize:9,fontWeight:700}}>✓</span>}
-                  </div>}
-                </div>;
-              })}
-            </div>
-          </div>}
+        ))}
       </div>
 
       <div style={{background:'#EBF4EF',borderRadius:10,padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <span style={{fontSize:13,color:'#2D5A42',fontWeight:600}}>
-          {selectedSlots.length===0?'לא נבחרו סלוטים':'נבחרו '+selectedSlots.length+' סלוטים לשיתוף'}
+          {selectedSlots.length===0?'לחץ על תא לבחירת שעה':'✓ נבחרו '+selectedSlots.length+' זמנים'}
         </span>
         <button onClick={()=>setStep(2)} disabled={selectedSlots.length===0}
           style={{height:36,padding:'0 20px',borderRadius:8,border:'none',background:selectedSlots.length>0?'#3D7A5A':'#B0B0B0',color:'white',fontSize:13,fontWeight:700,cursor:selectedSlots.length>0?'pointer':'not-allowed',fontFamily:'Heebo,sans-serif'}}>
@@ -884,6 +877,27 @@ function MeetingScheduler({project,onClose}){
             style={{...inpSt,height:'auto',resize:'none',padding:'8px 10px'}}/>
         </label>
       </div>
+      {/* Attendees */}
+      {members.filter(m=>m.email!==(_sbUserEmail||'')&&m.role!=='client').length>0&&(
+        <div>
+          <div style={lblSt}>צרף משתמשי צוות לפגישה {attendees.length>0&&`(${attendees.length} נבחרו)`}</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {members.filter(m=>m.email!==(_sbUserEmail||'')&&m.role!=='client').map(m=>{
+              const sel=attendees.some(a=>a.email===m.email);
+              return(
+                <div key={m.email} onClick={()=>toggleAttendee(m)}
+                  style={{display:'flex',alignItems:'center',gap:7,padding:'5px 12px 5px 5px',borderRadius:20,border:`2px solid ${sel?'#3D7A5A':'#E8E6E1'}`,background:sel?'#EBF4EF':'white',cursor:'pointer',transition:'all .15s',userSelect:'none'}}>
+                  {m.picture
+                    ?<img src={m.picture} style={{width:26,height:26,borderRadius:'50%',objectFit:'cover'}} alt=""/>
+                    :<div style={{width:26,height:26,borderRadius:'50%',background:sel?'#3D7A5A':'#B0B0B0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'white'}}>{(m.name||m.email||'?')[0].toUpperCase()}</div>}
+                  <span style={{fontSize:13,fontWeight:sel?600:400,color:sel?'#2D5A42':'#4A4A4A'}}>{m.name||m.email}</span>
+                  {sel&&<span style={{fontSize:12,color:'#3D7A5A',fontWeight:700}}>✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {/* Slots preview */}
       <div>
         <span style={{...lblSt,display:'block',marginBottom:8}}>הסלוטים שיוצעו ({selectedSlots.length})</span>
@@ -2642,7 +2656,7 @@ function ProjectDetail({project,db,onBack,currentUser,onOpenPortal,nav}){
   const TABS=[{id:'tasks',l:'משימות',e:'☑️'},{id:'flow',l:'זרימה',e:'🗺'},{id:'ms',l:'אבני דרך',e:'🚩'},{id:'docs',l:'מסמכים',e:'📄'},{id:'reqs',l:'בקשות',e:'📨'},{id:'app',l:'אישורים',e:'✅'},{id:'consultants',l:'יועצים',e:'🔧'},{id:'log',l:'לוג',e:'📋'},{id:'cfg',l:'הגדרות',e:'⚙️'}];
   const [showScheduler,setShowScheduler]=useState(false);
   return<div>
-    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)}/>}
+    {showScheduler&&<MeetingScheduler project={project} onClose={()=>setShowScheduler(false)} members={officeMembers||[]}/>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}><span style={{color:'#9C9C9C',cursor:'pointer'}} onClick={onBack}>לוח בקרה</span><span style={{color:'#C0C0C0'}}>/</span><span style={{color:'#1A1A1A',fontWeight:600}}>{project.name}</span></div>
       <div style={{display:'flex',gap:8}}>

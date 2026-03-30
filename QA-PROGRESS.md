@@ -1,5 +1,5 @@
 # ArchStudio — QA Progress Report
-Generated: 2026-03-30 | Updated: Sentry Run 2
+Generated: 2026-03-30 | Updated: Sentry Run 3
 
 ---
 
@@ -41,14 +41,14 @@ Generated: 2026-03-30 | Updated: Sentry Run 2
 
 | # | Issue | Priority | Status |
 |---|-------|----------|--------|
-| B1 | **No glassmorphism on cards/panels** — all use flat `background:white` | High | ⬜ |
-| B2 | **Primary buttons don't use gold glass style** — use `#1A1A1A` or `#3D7A5A` | High | ⬜ |
-| B3 | **Sidebar active state wrong** — uses green `rgba(61,122,90,.25)` + `#A8D5BA` instead of gold glass + gold-300 text + left gold border | High | ⬜ |
-| B4 | **No CSS custom properties defined** — `:root` has only 4 vars (`--green`, `--gold`, `--red`, `--border`, `--text2`); full branding palette not available | Medium | ⬜ |
+| B1 | **No glassmorphism on cards/panels** — all use flat `background:white` | High | ⬜ Skipped — applying dark glass to white-text-context cards would make text invisible; deferred to Run 4 / theme decision |
+| B2 ✅ | **Primary buttons don't use gold glass style** — use `#1A1A1A` or `#3D7A5A` | High | Fixed: `Btn` primary variant → gold linear-gradient + `#c9983a` text + gold border |
+| B3 ✅ | **Sidebar active state wrong** — uses green `rgba(61,122,90,.25)` + `#A8D5BA` instead of gold glass + gold-300 text + left gold border | High | Fixed: gold gradient bg + `#e0b255` text + `inset -3px 0 0 #c9983a` stripe (nav + project items) |
+| B4 ✅ | **No CSS custom properties defined** — `:root` has only 4 vars | Medium | Fixed: Added full steel + gold + semantic palette to `:root` |
 | B5 | **Hardcoded font sizes** — no `clamp()` fluid typography anywhere | Medium | ⬜ |
-| B6 | **Status badges don't use branding semantic colors** — use arbitrary blues/ambers/greens instead of `--color-success`, `--color-info`, etc. | Medium | ⬜ |
-| B7 | **Modals use flat white background** — should use elevated glass card from branding | Medium | ⬜ |
-| B8 | **No `fadeSlideUp` animation** — app uses `fadeIn` (Y=4px), branding specifies `fadeSlideUp` (Y=8px) with `.animate-appear` | Low | ⬜ |
+| B6 ✅ | **Status badges don't use branding semantic colors** — use arbitrary blues/ambers/greens | Medium | Fixed: `STATUS_MAP` updated to use `--color-info/warning/success/steel` values |
+| B7 ✅ | **Modals use flat white background** — should use elevated glass card from branding | Medium | Fixed: `rgba(255,255,255,0.93)` + `backdrop-filter:blur(20px)` + steel border + deeper shadow |
+| B8 ✅ | **No `fadeSlideUp` animation** — app uses `fadeIn` (Y=4px), branding specifies `fadeSlideUp` (Y=8px) with `.animate-appear` | Low | Fixed: Added `@keyframes fadeSlideUp` + `.animate-appear` to CSS |
 | B9 | **Font stack mismatch** — body uses `Heebo` (good for Hebrew), not `Inter/Segoe UI`. Heebo is appropriate but Inter should be added as fallback for numeric data | Low | ⬜ |
 | B10 | **Inputs/dropdowns lack gold focus ring** — plain `outline:none` with no focus style | Low | ⬜ |
 
@@ -93,6 +93,6 @@ Generated: 2026-03-30 | Updated: Sentry Run 2
 |-----|--------|-------------|
 | Run 1 | ✅ Complete | QA audit — 22 issues catalogued |
 | Run 2 | ✅ Complete | Critical+High fixes — 4 bugs fixed (A1 critical, A2/A3/A4 high) |
-| Run 3 | ⬜ Pending | UI upgrade — glass/color system |
+| Run 3 | ✅ Complete | UI upgrade — glass/color system (B2,B3,B4,B6,B7,B8 fixed; B1 deferred) |
 | Run 4 | ⬜ Pending | Typography + polish |
 | Final | ⬜ Pending | Daily report |

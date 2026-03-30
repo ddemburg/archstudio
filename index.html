@@ -11,15 +11,26 @@
 <style>body{font-family:Arial,sans-serif;direction:rtl;padding:20px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#3D7A5A;color:white}h1{color:#1A1A1A}p{color:#666;margin:4px 0}</style>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Heebo',sans-serif;background:#F5F4F0;color:#1A1A1A;direction:rtl}
-  :root{--green:#3D7A5A;--gold:#B45309;--red:#DC2626;--red-light:#FEF2F2;--border:#E8E6E1;--text2:#6B6B6B}
+  body{font-family:'Heebo','Inter','Segoe UI',system-ui,-apple-system,sans-serif;background:#F5F4F0;color:#1A1A1A;direction:rtl}
+  :root{--green:#3D7A5A;--gold:#B45309;--red:#DC2626;--red-light:#FEF2F2;--border:#E8E6E1;--text2:#6B6B6B;--color-steel-900:#0f1318;--color-steel-800:#1a2030;--color-steel-700:#232b3e;--color-steel-600:#2e3a52;--color-steel-500:#4a5a78;--color-steel-400:#7a8fb0;--color-steel-300:#b0bdd4;--color-steel-200:#d4dbe8;--color-steel-100:#eef1f7;--color-gold-600:#7a5c1e;--color-gold-500:#a67c2e;--color-gold-400:#c9983a;--color-gold-300:#e0b255;--color-gold-200:#f0cc7a;--color-gold-100:#fde8a8;--color-success:#3d8f5f;--color-warning:#b8822a;--color-error:#8f3d3d;--color-info:#3d668f;
+    --text-xs:clamp(0.65rem,0.6rem + 0.25vw,0.75rem);--text-sm:clamp(0.78rem,0.72rem + 0.3vw,0.875rem);--text-base:clamp(0.9rem,0.85rem + 0.35vw,1rem);--text-md:clamp(1rem,0.95rem + 0.4vw,1.125rem);--text-lg:clamp(1.1rem,1rem + 0.5vw,1.25rem);--text-xl:clamp(1.2rem,1.1rem + 0.65vw,1.5rem);--text-2xl:clamp(1.4rem,1.25rem + 0.85vw,1.875rem);--text-3xl:clamp(1.65rem,1.4rem + 1.1vw,2.25rem);
+    --leading-tight:1.2;--leading-normal:1.5;--leading-loose:1.75;
+    --tracking-tight:-0.02em;--tracking-normal:0;--tracking-wide:0.04em;--tracking-wider:0.08em;
+    --transition-fast:0.12s ease;--transition-normal:0.2s ease;--transition-slow:0.35s cubic-bezier(0.4,0,0.2,1);
+    --radius-sm:6px;--radius-md:10px;--radius-lg:14px;--radius-xl:20px;--radius-full:9999px;
+    --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;}
   .hr:hover{background:#FAFAF8!important}
   .fade{animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .animate-appear{animation:fadeSlideUp .2s ease forwards}
   @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:#D1CBC1;border-radius:10px}
+  input:focus,textarea:focus,select:focus{outline:none!important;border-color:var(--color-gold-400)!important;box-shadow:0 0 0 2px rgba(201,152,58,.15)!important;transition:border-color var(--transition-fast),box-shadow var(--transition-fast)}
+  .tabular-nums{font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -581,7 +592,7 @@ function BookingPage({token}){
           <div style={{fontSize:15,fontWeight:700,color:'#2D5A42',marginBottom:4}}>
             {DAY_HE_F[chosen.date.getDay()]}, {fmtMD(chosen.date)}
           </div>
-          <div style={{fontSize:14,color:'#3D7A5A'}}>{fmtTH(chosen.hour)}–{fmtTH(chosen.hour+(chosen.duration/60|0))} ({chosen.duration} דק׳)</div>
+          <div style={{fontSize:14,color:'#3D7A5A'}}>{fmtTH(chosen.hour)}–{fmtTH(chosen.hour+Math.floor(chosen.duration/60),chosen.duration%60)} ({chosen.duration} דק׳)</div>
         </div>
         <p style={{fontSize:13,color:'#8C8C8C'}}>נתראה בקרוב! 🏗<br/>המשרד יצור איתך קשר לאישור.</p>
       </div>
@@ -1213,7 +1224,7 @@ function useApp(){
     if(!driveReady||!gIsSignedIn())return;
     if(saveTimer.current)clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(()=>{const s=getState();driveSave(s);autoBackup(s);},2000);
-  },[projects,tasks,docs,reqs,approvs,committees,partners,templates,crm,leads,driveReady]);
+  },[projects,tasks,docs,reqs,approvs,committees,officeMembers,templates,crm,leads,driveReady]);
 
   return {
     driveReady,driveSyncing,driveLastSave,driveError,driveLoad,driveSave,
@@ -1308,13 +1319,15 @@ function useApp(){
 }
 
 // ─── Base UI ──────────────────────────────────────────────────────────────────
-const I=({label,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<input style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',background:'white'}} {...p}/></label>);
-const TA=({label,rows=3,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<textarea rows={rows} style={{width:'100%',padding:'7px 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',resize:'none',background:'white'}} {...p}/></label>);
-const SE=({label,children,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:11,fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:5}}>{label}</span>}<select style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:13,outline:'none',background:'white'}} {...p}>{children}</select></label>);
+const I=({label,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:'var(--text-xs)',fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'var(--tracking-wide)',marginBottom:5}}>{label}</span>}<input style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:'var(--text-sm)',outline:'none',background:'white',transition:'border-color var(--transition-fast),box-shadow var(--transition-fast)'}} {...p}/></label>);
+const TA=({label,rows=3,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:'var(--text-xs)',fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'var(--tracking-wide)',marginBottom:5}}>{label}</span>}<textarea rows={rows} style={{width:'100%',padding:'7px 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:'var(--text-sm)',outline:'none',resize:'none',background:'white',transition:'border-color var(--transition-fast),box-shadow var(--transition-fast)'}} {...p}/></label>);
+const SE=({label,children,...p})=>(<label style={{display:'block'}}>{label&&<span style={{display:'block',fontSize:'var(--text-xs)',fontWeight:600,color:'#8C8C8C',textTransform:'uppercase',letterSpacing:'var(--tracking-wide)',marginBottom:5}}>{label}</span>}<select style={{width:'100%',height:38,padding:'0 10px',border:'1px solid #E8E6E1',borderRadius:7,fontSize:'var(--text-sm)',outline:'none',background:'white',transition:'border-color var(--transition-fast),box-shadow var(--transition-fast)'}} {...p}>{children}</select></label>);
 const Btn=({children,v='primary',sz='md',sx={},...p})=>{
-  const V={primary:{background:'#1A1A1A',color:'white',border:'none'},accent:{background:'var(--green)',color:'white',border:'none'},outline:{background:'white',color:'#3A3A3A',border:'1px solid var(--border)'},ghost:{background:'transparent',color:'var(--text2)',border:'none'},danger:{background:'var(--red-light)',color:'var(--red)',border:'1px solid #FECACA'}};
-  const S={sm:{height:30,padding:'0 10px',fontSize:12},md:{height:38,padding:'0 14px',fontSize:13},lg:{height:42,padding:'0 22px',fontSize:14}};
-  return <button style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,fontWeight:500,borderRadius:7,cursor:'pointer',transition:'opacity .15s',...V[v],...S[sz],...sx}} onMouseOver={e=>e.currentTarget.style.opacity='.82'} onMouseOut={e=>e.currentTarget.style.opacity='1'} {...p}>{children}</button>;
+  const V={primary:{background:'linear-gradient(135deg,rgba(201,152,58,.22),rgba(201,152,58,.1))',color:'#c9983a',border:'1px solid rgba(201,152,58,.45)',backdropFilter:'blur(8px)'},accent:{background:'var(--green)',color:'white',border:'none'},outline:{background:'white',color:'#3A3A3A',border:'1px solid var(--border)'},ghost:{background:'transparent',color:'var(--text2)',border:'none'},danger:{background:'var(--red-light)',color:'var(--red)',border:'1px solid #FECACA'}};
+  const S={sm:{height:30,padding:'0 10px',fontSize:'var(--text-xs)'},md:{height:38,padding:'0 14px',fontSize:'var(--text-sm)'},lg:{height:42,padding:'0 22px',fontSize:'var(--text-base)'}};
+  const hOver=e=>{const el=e.currentTarget;if(v==='primary'){el.style.background='linear-gradient(135deg,rgba(201,152,58,.38),rgba(201,152,58,.22))';el.style.borderColor='rgba(201,152,58,.7)';el.style.boxShadow='0 0 16px rgba(201,152,58,.2)';}else{el.style.opacity='.85';}};
+  const hOut=e=>{const el=e.currentTarget;if(v==='primary'){el.style.background='linear-gradient(135deg,rgba(201,152,58,.22),rgba(201,152,58,.1))';el.style.borderColor='rgba(201,152,58,.45)';el.style.boxShadow='';}else{el.style.opacity='1';}};
+  return <button style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,fontWeight:500,borderRadius:7,cursor:'pointer',transition:'all var(--transition-normal)',...V[v],...S[sz],...sx}} onMouseOver={hOver} onMouseOut={hOut} {...p}>{children}</button>;
 };
 function Av({u,size=28}){
   if(!u)return<div style={{width:size,height:size,borderRadius:'50%',background:'#E8E6E1',display:'flex',alignItems:'center',justifyContent:'center',color:'#8C8C8C',fontSize:size*.4,flexShrink:0}}>?</div>;
@@ -1322,11 +1335,11 @@ function Av({u,size=28}){
   return<div title={u.name} style={{width:size,height:size,borderRadius:'50%',background:u.color||'#9C9C9C',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:600,fontSize:size*.38,flexShrink:0}}>{(u.name||'?')[0]}</div>;
 }
 const STATUS_MAP={
-  'Planning':    {heb:'תכנון',      bg:'#EFF6FF',col:'#1D4ED8',dot:'#3B82F6'},
-  'Permitting':  {heb:'היתרים',     bg:'#FFFBEB',col:'#B45309',dot:'#F59E0B'},
-  'Under Construction':{heb:'בביצוע', bg:'#ECFDF5',col:'#065F46',dot:'#10B981'},
-  'Completed':   {heb:'הושלם',      bg:'#F0FDF4',col:'#166534',dot:'#22C55E'},
-  'On Hold':     {heb:'בהמתנה',     bg:'#F3F4F6',col:'#6B7280',dot:'#9CA3AF'},
+  'Planning':    {heb:'תכנון',      bg:'rgba(61,102,143,.12)', col:'#3d668f',dot:'#3d668f'},
+  'Permitting':  {heb:'היתרים',     bg:'rgba(184,130,42,.12)', col:'#b8822a',dot:'#b8822a'},
+  'Under Construction':{heb:'בביצוע', bg:'rgba(61,143,95,.12)',col:'#3d8f5f',dot:'#3d8f5f'},
+  'Completed':   {heb:'הושלם',      bg:'rgba(61,143,95,.18)', col:'#2d6b44',dot:'#3d8f5f'},
+  'On Hold':     {heb:'בהמתנה',     bg:'rgba(74,90,120,.1)',  col:'#4a5a78',dot:'#4a5a78'},
 };
 function SBadge({status}){
   const c=STATUS_MAP[status]||{heb:status,bg:'#F3F4F6',col:'#6B7280',dot:'#9CA3AF'};
@@ -1335,7 +1348,7 @@ function SBadge({status}){
 function Modal({open,onClose,title,children,wide,xl}){
   if(!open)return null;
   return<div onClick={onClose} style={{position:'fixed',inset:0,zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,.45)'}}>
-    <div onClick={e=>e.stopPropagation()} className="fade" style={{background:'white',borderRadius:14,boxShadow:'0 20px 60px rgba(0,0,0,.2)',width:'100%',maxWidth:xl?900:wide?640:500,maxHeight:'92vh',display:'flex',flexDirection:'column'}}>
+    <div onClick={e=>e.stopPropagation()} className="fade" style={{background:'rgba(255,255,255,0.93)',backdropFilter:'blur(20px) saturate(1.4)',WebkitBackdropFilter:'blur(20px) saturate(1.4)',border:'1px solid rgba(160,180,220,0.18)',borderRadius:14,boxShadow:'0 8px 48px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,0.8) inset',width:'100%',maxWidth:xl?900:wide?640:500,maxHeight:'92vh',display:'flex',flexDirection:'column'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 22px',borderBottom:'1px solid #F0EDE8',flexShrink:0}}>
         <h2 style={{fontSize:16,fontWeight:600}}>{title}</h2>
         <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'#8C8C8C',lineHeight:1,padding:4}}>×</button>
@@ -2990,7 +3003,7 @@ function PartnersPage({db,nav}){
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
               ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
-              :<Av name={p.name} size={44} color={p.color}/>}
+              :<Av u={{name:p.name,color:p.color,picture:p.picture}} size={44}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
               <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>
@@ -3009,7 +3022,7 @@ function PartnersPage({db,nav}){
     </div>
     {db.partners.length===0&&<div style={{textAlign:'center',padding:60,color:'#B0B0B0',fontSize:14}}>
       אין חברי צוות עדיין.<br/>
-      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav('appsettings')}>הוסף דרך הגדרות</Btn>
+      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav.toSettings()}>הוסף דרך הגדרות</Btn>
     </div>}
   </div>;
 }
@@ -4144,7 +4157,7 @@ function App(){
       </div>
       <nav style={{padding:"8px 8px",borderBottom:"1px solid rgba(255,255,255,.08)",flexShrink:0}}>
         {NAV.map(n=><button key={n.id} onClick={()=>navTo(n.id,null)}
-          className="sidebar-item" style={{width:"100%",textAlign:"right",display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:page===n.id&&!pid?600:400,background:page===n.id&&!pid?"rgba(61,122,90,.25)":"transparent",color:page===n.id&&!pid?"#A8D5BA":"rgba(255,255,255,.55)",marginBottom:2,fontFamily:"Heebo,sans-serif",transition:"all .12s"}}>
+          className="sidebar-item" style={{width:"100%",textAlign:"right",display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:page===n.id&&!pid?600:400,background:page===n.id&&!pid?"linear-gradient(135deg,rgba(201,152,58,.25),rgba(201,152,58,.12))":"transparent",color:page===n.id&&!pid?"#e0b255":"rgba(255,255,255,.55)",boxShadow:page===n.id&&!pid?"inset -3px 0 0 #c9983a":"none",marginBottom:2,fontFamily:"Heebo,sans-serif",transition:"all .12s"}}>
           <span>{n.e}</span>{n.l}
         </button>)}
       </nav>
@@ -4162,7 +4175,7 @@ function App(){
           </optgroup>}
         </select>
         {sbProjects.map(p=><button key={p.id} onClick={()=>openProj(p.id)}
-          className="sidebar-item" style={{width:"100%",textAlign:"right",padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,background:pid===p.id&&page==="project"?"rgba(61,122,90,.25)":"transparent",color:pid===p.id&&page==="project"?"#A8D5BA":"rgba(255,255,255,.5)",fontFamily:"Heebo,sans-serif",marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"block"}}>
+          className="sidebar-item" style={{width:"100%",textAlign:"right",padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,background:pid===p.id&&page==="project"?"linear-gradient(135deg,rgba(201,152,58,.22),rgba(201,152,58,.1))":"transparent",color:pid===p.id&&page==="project"?"#e0b255":"rgba(255,255,255,.5)",boxShadow:pid===p.id&&page==="project"?"inset -3px 0 0 #c9983a":"none",fontFamily:"Heebo,sans-serif",marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"block"}}>
           {p.name}
         </button>)}
       </div>

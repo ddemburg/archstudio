@@ -1,5 +1,5 @@
 # ArchStudio — QA Progress Report
-Generated: 2026-03-30 | Updated: Sentry Run 3
+Generated: 2026-03-30 | Updated: Sentry Run 4
 
 ---
 
@@ -23,8 +23,8 @@ Generated: 2026-03-30 | Updated: Sentry Run 3
 
 | # | Issue | Location | Details |
 |---|-------|----------|---------|
-| A5 | **`_sbRefreshSession` doesn't lowercase email** | `index.html` ~line 210 | `_sbUserEmail = data.user?.email \|\| ''` — missing `.toLowerCase()`. All other session paths normalize email. Could cause case mismatch if refresh token fires. |
-| A6 | **`partners` (derived/computed) in auto-save `useEffect` dependency array** | `index.html` ~line 1216 | `partners` is computed from `officeMembers` inside `useApp` on every render — including it in the effect deps causes unnecessary auto-save timer restarts. Should be `officeMembers` instead. |
+| A5 | **`_sbRefreshSession` doesn't lowercase email** | `index.html` ~line 210 | `_sbUserEmail = data.user?.email \|\| ''` — missing `.toLowerCase()`. All other session paths normalize email. Could cause case mismatch if refresh token fires. ⚠️ In auth no-touch zone — skipped. |
+| A6 ✅ | **`partners` (derived/computed) in auto-save `useEffect` dependency array** | `index.html` ~line 1220 | Fixed: replaced `partners` with `officeMembers` in deps — avoids spurious timer restarts. |
 | A7 | **Task file upload shows misleading `alert()`** | `index.html` ~line 1547 | `alert('העלאת קבצים תהיה זמינה עם חיבור לשרת')` — the app already has Supabase Storage (`sbUploadFile`). This dead code confuses users. Should either wire up the real upload or remove the zone. |
 | A8 | **`autoBackup` references unset `_gAccessToken`** | `index.html` ~line 1181 | PKCE flow stores `provider_token` as `_calToken` only. `_gAccessToken` remains `''` permanently. Auto-backup to Google Drive silently fails on every call. (Supabase backup still works.) |
 
@@ -45,12 +45,12 @@ Generated: 2026-03-30 | Updated: Sentry Run 3
 | B2 ✅ | **Primary buttons don't use gold glass style** — use `#1A1A1A` or `#3D7A5A` | High | Fixed: `Btn` primary variant → gold linear-gradient + `#c9983a` text + gold border |
 | B3 ✅ | **Sidebar active state wrong** — uses green `rgba(61,122,90,.25)` + `#A8D5BA` instead of gold glass + gold-300 text + left gold border | High | Fixed: gold gradient bg + `#e0b255` text + `inset -3px 0 0 #c9983a` stripe (nav + project items) |
 | B4 ✅ | **No CSS custom properties defined** — `:root` has only 4 vars | Medium | Fixed: Added full steel + gold + semantic palette to `:root` |
-| B5 | **Hardcoded font sizes** — no `clamp()` fluid typography anywhere | Medium | ⬜ |
+| B5 ✅ | **Hardcoded font sizes** — no `clamp()` fluid typography anywhere | Medium | Fixed: Added full fluid typography scale (`--text-xs` → `--text-3xl`) to `:root`. Applied to base components (I, TA, SE, Btn). |
 | B6 ✅ | **Status badges don't use branding semantic colors** — use arbitrary blues/ambers/greens | Medium | Fixed: `STATUS_MAP` updated to use `--color-info/warning/success/steel` values |
 | B7 ✅ | **Modals use flat white background** — should use elevated glass card from branding | Medium | Fixed: `rgba(255,255,255,0.93)` + `backdrop-filter:blur(20px)` + steel border + deeper shadow |
 | B8 ✅ | **No `fadeSlideUp` animation** — app uses `fadeIn` (Y=4px), branding specifies `fadeSlideUp` (Y=8px) with `.animate-appear` | Low | Fixed: Added `@keyframes fadeSlideUp` + `.animate-appear` to CSS |
-| B9 | **Font stack mismatch** — body uses `Heebo` (good for Hebrew), not `Inter/Segoe UI`. Heebo is appropriate but Inter should be added as fallback for numeric data | Low | ⬜ |
-| B10 | **Inputs/dropdowns lack gold focus ring** — plain `outline:none` with no focus style | Low | ⬜ |
+| B9 ✅ | **Font stack mismatch** — body uses `Heebo` (good for Hebrew), not `Inter/Segoe UI`. Heebo is appropriate but Inter should be added as fallback for numeric data | Low | Fixed: `body` now `'Heebo','Inter','Segoe UI',system-ui,-apple-system,sans-serif`. |
+| B10 ✅ | **Inputs/dropdowns lack gold focus ring** — plain `outline:none` with no focus style | Low | Fixed: Added CSS `input:focus, textarea:focus, select:focus` rule with `border-color:var(--color-gold-400)` + 2px gold glow. |
 
 ---
 
@@ -94,5 +94,5 @@ Generated: 2026-03-30 | Updated: Sentry Run 3
 | Run 1 | ✅ Complete | QA audit — 22 issues catalogued |
 | Run 2 | ✅ Complete | Critical+High fixes — 4 bugs fixed (A1 critical, A2/A3/A4 high) |
 | Run 3 | ✅ Complete | UI upgrade — glass/color system (B2,B3,B4,B6,B7,B8 fixed; B1 deferred) |
-| Run 4 | ⬜ Pending | Typography + polish |
+| Run 4 | ✅ Complete | Typography + polish — fluid type vars, gold focus rings, Btn hover glow, A6 dep fix, B9/B10 resolved |
 | Final | ⬜ Pending | Daily report |

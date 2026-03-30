@@ -1,5 +1,5 @@
 # ArchStudio — QA Progress Report
-Generated: 2026-03-30 | Sentry Run 1
+Generated: 2026-03-30 | Updated: Sentry Run 2
 
 ---
 
@@ -9,15 +9,15 @@ Generated: 2026-03-30 | Sentry Run 1
 
 | # | Issue | Location | Details |
 |---|-------|----------|---------|
-| A1 | **`<Av>` component called with wrong prop signature in `PartnersPage`** | `index.html` ~line 2993 | `<Av name={p.name} size={44} color={p.color}/>` — but `Av` expects `{u, size}` where `u` is the full user object. Renders blank/broken initials for all team members on the Partners page. Fix: `<Av u={{name:p.name, color:p.color}} size={44}/>` |
+| A1 ✅ | **`<Av>` component called with wrong prop signature in `PartnersPage`** | `index.html` ~line 2993 | Fixed: `<Av u={{name:p.name,color:p.color,picture:p.picture}} size={44}/>` |
 
 ### 🟠 HIGH
 
 | # | Issue | Location | Details |
 |---|-------|----------|---------|
-| A2 | **`PartnersPage` empty-state calls `nav('appsettings')` — nav is not a function** | `index.html` ~line 3012 | `nav` is an object `{toProject, toDashboard, ...}` passed as prop, not a function. Clicking "הוסף דרך הגדרות" in empty state throws `TypeError: nav is not a function`. Fix: `nav.toSettings()` (which also needs to be added to nav obj — currently only has `toProject, toDashboard, toReports, toCRM, toTasks, toSettings`) |
-| A3 | **Missing `@keyframes pulse` — DriveBanner syncing dot doesn't animate** | `index.html` ~line 3992 | CSS uses `animation:'pulse 1s infinite'` but only `@keyframes fadeIn` and `@keyframes readyPulse` are defined. The syncing dot is visually static. Fix: Add `@keyframes pulse` or reference existing `readyPulse` |
-| A4 | **`BookingPage` confirmed view shows incorrect end-time for non-60-min durations** | `index.html` ~line 584 | `fmtTH(chosen.hour+(chosen.duration/60|0))` drops the minutes remainder. For a 90-min meeting starting at 14:00, it shows end as `15:00` instead of `15:30`. Same pattern used in slot list correctly (`fmtTH(h+Math.floor(d/60), d%60)`) but not in the confirmation screen. |
+| A2 ✅ | **`PartnersPage` empty-state calls `nav('appsettings')` — nav is not a function** | `index.html` ~line 3012 | Fixed: changed to `nav.toSettings()` — method already existed on nav object |
+| A3 ✅ | **Missing `@keyframes pulse` — DriveBanner syncing dot doesn't animate** | `index.html` ~line 3992 | Fixed: Added `@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}` to CSS |
+| A4 ✅ | **`BookingPage` confirmed view shows incorrect end-time for non-60-min durations** | `index.html` ~line 584 | Fixed: `fmtTH(chosen.hour+Math.floor(chosen.duration/60),chosen.duration%60)` — now correctly shows e.g. 15:30 for 90-min from 14:00 |
 
 ### 🟡 MEDIUM
 
@@ -92,7 +92,7 @@ Generated: 2026-03-30 | Sentry Run 1
 | Run | Status | Description |
 |-----|--------|-------------|
 | Run 1 | ✅ Complete | QA audit — 22 issues catalogued |
-| Run 2 | ⬜ Pending | Fix Critical + High bugs |
+| Run 2 | ✅ Complete | Critical+High fixes — 4 bugs fixed (A1 critical, A2/A3/A4 high) |
 | Run 3 | ⬜ Pending | UI upgrade — glass/color system |
 | Run 4 | ⬜ Pending | Typography + polish |
 | Final | ⬜ Pending | Daily report |

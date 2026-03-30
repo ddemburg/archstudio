@@ -17,6 +17,7 @@
   .fade{animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
   @keyframes readyPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}60%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:#D1CBC1;border-radius:10px}
@@ -581,7 +582,7 @@ function BookingPage({token}){
           <div style={{fontSize:15,fontWeight:700,color:'#2D5A42',marginBottom:4}}>
             {DAY_HE_F[chosen.date.getDay()]}, {fmtMD(chosen.date)}
           </div>
-          <div style={{fontSize:14,color:'#3D7A5A'}}>{fmtTH(chosen.hour)}–{fmtTH(chosen.hour+(chosen.duration/60|0))} ({chosen.duration} דק׳)</div>
+          <div style={{fontSize:14,color:'#3D7A5A'}}>{fmtTH(chosen.hour)}–{fmtTH(chosen.hour+Math.floor(chosen.duration/60),chosen.duration%60)} ({chosen.duration} דק׳)</div>
         </div>
         <p style={{fontSize:13,color:'#8C8C8C'}}>נתראה בקרוב! 🏗<br/>המשרד יצור איתך קשר לאישור.</p>
       </div>
@@ -2990,7 +2991,7 @@ function PartnersPage({db,nav}){
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             {p.picture
               ?<img src={p.picture} style={{width:44,height:44,borderRadius:'50%',flexShrink:0}} alt=""/>
-              :<Av name={p.name} size={44} color={p.color}/>}
+              :<Av u={{name:p.name,color:p.color,picture:p.picture}} size={44}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14}}>{p.name}</div>
               <div style={{fontSize:12,color:'#8C8C8C'}}>{p.email||''}</div>
@@ -3009,7 +3010,7 @@ function PartnersPage({db,nav}){
     </div>
     {db.partners.length===0&&<div style={{textAlign:'center',padding:60,color:'#B0B0B0',fontSize:14}}>
       אין חברי צוות עדיין.<br/>
-      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav('appsettings')}>הוסף דרך הגדרות</Btn>
+      <Btn v="outline" sx={{marginTop:12}} onClick={()=>nav.toSettings()}>הוסף דרך הגדרות</Btn>
     </div>}
   </div>;
 }
